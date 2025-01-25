@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1031908092002",
+    "project_id": "school360-534a4",
+    "storage_bucket": "school360-534a4.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1031908092002:android:c730655aa89c87c7dcc93b",
+        "android_client_info": {
+          "package_name": "exel.school360"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCBazasijSfIvFqt172bdVVXZ8yZQG-VoE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
