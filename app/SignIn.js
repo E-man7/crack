@@ -8,31 +8,53 @@ import supabase from './supabase'; // Ensure this path is correct
 const SignIn = () => {
   const [selectedSchool, setSelectedSchool] = useState('');
   const [selectedRole, setSelectedRole] = useState('');
-  const [email, setEmail] = useState('');
+  const [adm_no, setAdmNo] = useState('');
   const [password, setPassword] = useState('');
   const [passwordVisible, setPasswordVisible] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const navigation = useNavigation();
 
+  // Handle sign-in
   const handleSignIn = async () => {
-    if (!email || !password) {
-      Alert.alert('Error', 'Please enter both email and password.');
+    if (!adm_no || !password || !selectedRole) {
+      Alert.alert('Error', 'All fields are required');
       return;
     }
-    try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
 
-      if (error) {
-        Alert.alert('Error', error.message);
+    if (isSubmitting) return;
+
+    try {
+      setIsSubmitting(true);
+
+      // Determine the table based on selected role
+      const table = selectedRole === 'parent' ? 'parents' : 'teachers';
+
+      // Fetch email from the correct table
+      const { data: userData, error: userError } = await supabase
+        .from(table)
+        .select('email')
+        .eq('adm_no', adm_no)
+        .single();
+
+      if (userError || !userData?.email) {
+        Alert.alert('Error', 'Invalid admission number or role');
         return;
       }
 
-      Alert.alert('Success', 'You are signed in!');
-      navigation.replace('Home'); // Navigate to the Tabs component
+      // Sign in with email and password
+      const { error } = await supabase.auth.signInWithPassword({
+        email: userData.email,
+        password,
+      });
+
+      if (error) throw error;
+
+      Alert.alert('Success', 'Signed in successfully!');
+      navigation.replace('Home');
     } catch (error) {
-      Alert.alert('Error', error.message);
+      Alert.alert('Error', error.message || 'Failed to sign in.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -69,15 +91,13 @@ const SignIn = () => {
         </Picker>
       </View>
 
-      {/* Email Input */}
+      {/* Admission Number Input */}
       <TextInput
         style={tw`w-full border border-gray-400 rounded-lg p-4 text-base text-black mb-4`}
-        placeholder="Email"
-        value={email}
-        onChangeText={setEmail}
+        placeholder="Admission Number"
+        value={adm_no}
+        onChangeText={setAdmNo}
         placeholderTextColor="#888888"
-        keyboardType="email-address"
-        autoCapitalize="none"
       />
 
       {/* Password Input */}
@@ -99,10 +119,16 @@ const SignIn = () => {
 
       {/* Sign In Button */}
       <TouchableOpacity
-        style={tw`w-full bg-blue-600 rounded-lg py-3 mb-4`}
+        style={[
+          tw`w-full bg-blue-600 rounded-lg py-3 mb-4`,
+          isSubmitting && tw`opacity-50`,
+        ]}
         onPress={handleSignIn}
+        disabled={isSubmitting}
       >
-        <Text style={tw`text-white text-center text-base font-bold`}>Sign In</Text>
+        <Text style={tw`text-white text-center text-base font-bold`}>
+          {isSubmitting ? 'Signing In...' : 'Sign In'}
+        </Text>
       </TouchableOpacity>
 
       {/* Navigate to Sign Up */}

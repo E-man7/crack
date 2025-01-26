@@ -1,11 +1,66 @@
-import React from 'react';
-import { View, Text, StyleSheet, Image, ScrollView } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, Text, StyleSheet, Image, ScrollView, ActivityIndicator } from 'react-native';
 import { BarChart, ProgressChart } from 'react-native-chart-kit';
 import { Dimensions } from 'react-native';
+import supabase from '../supabase'; // Ensure this path is correct
 
 const screenWidth = Dimensions.get('window').width;
 
 const Home = () => {
+  const [userData, setUserData] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  // Fetch authenticated user data
+  useEffect(() => {
+    const fetchUserData = async () => {
+      try {
+        // Get the current authenticated user
+        const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+        if (authError) throw authError;
+
+        // Determine the table based on the user's role
+        const table = user.user_metadata.role === 'parent' ? 'parents' : 'teachers';
+
+        // Fetch user data from the appropriate table
+        const { data, error: fetchError } = await supabase
+          .from(table)
+          .select('*')
+          .eq('adm_no', user.user_metadata.adm_no)
+          .single();
+
+        if (fetchError) throw fetchError;
+
+        // Set the user data in state
+        setUserData(data);
+      } catch (error) {
+        console.error('Error fetching user data:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchUserData();
+  }, []);
+
+  // Display loading indicator while fetching data
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#037f8c" />
+      </View>
+    );
+  }
+
+  // Display error message if no user data is found
+  if (!userData) {
+    return (
+      <View style={styles.loadingContainer}>
+        <Text style={styles.errorText}>Failed to load user data.</Text>
+      </View>
+    );
+  }
+
   const barData = {
     labels: ['Math', 'English', 'Science', 'History', 'Art'],
     datasets: [
@@ -29,9 +84,9 @@ const Home = () => {
           style={styles.profileImage}
         />
         <View style={styles.profileInfo}>
-          <Text style={styles.name}>Name: Sophia Johnson</Text>
-          <Text style={styles.grade}>Grade: 5</Text>
-          <Text style={styles.adm}>ADM NO: sep22/45</Text>
+          <Text style={styles.name}>Name: {userData.name}</Text>
+          <Text style={styles.grade}>Grade: {userData.grade}</Text>
+          <Text style={styles.adm}>ADM NO: {userData.adm_no}</Text>
         </View>
       </View>
 
@@ -109,11 +164,11 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     backgroundColor: '#037f8c',
-    padding: 40, // Increased padding
+    padding: 40,
     alignItems: 'center',
   },
   profileImage: {
-    width: 80, // Increased size
+    width: 80,
     height: 80,
     borderRadius: 40,
     marginRight: 16,
@@ -122,16 +177,16 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   name: {
-    fontSize: 18, // Increased font size
+    fontSize: 18,
     color: '#ffffff',
     fontWeight: 'bold',
   },
   grade: {
-    fontSize: 16, // Increased font size
+    fontSize: 16,
     color: '#ffffff',
   },
   adm: {
-    fontSize: 16, // Increased font size
+    fontSize: 16,
     color: '#ffffff',
   },
   performanceContainer: {
@@ -160,14 +215,14 @@ const styles = StyleSheet.create({
     width: '30%',
   },
   feeCardLarge: {
-    padding: 16, // Increased padding for visibility
+    padding: 16,
   },
   feeTitle: {
-    fontSize: 14, // Increased font size
+    fontSize: 14,
     color: '#666',
   },
   feeValue: {
-    fontSize: 16, // Increased font size
+    fontSize: 16,
     fontWeight: 'bold',
     marginTop: 4,
   },
@@ -195,6 +250,15 @@ const styles = StyleSheet.create({
   notificationCardText: {
     fontSize: 14,
     fontWeight: 'bold',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  errorText: {
+    fontSize: 16,
+    color: 'red',
   },
 });
 

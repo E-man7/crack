@@ -7,7 +7,7 @@ import tw from 'twrnc';
 
 const SignUp = () => {
   const [form, setForm] = useState({
-    username: '',
+    adm_no: '', // Admission number
     email: '',
     password: '',
     school: '',
@@ -21,11 +21,34 @@ const SignUp = () => {
     setForm({ ...form, [field]: value });
   };
 
+  const validateAdmNo = async (adm_no) => {
+    console.log('Validating adm_no:', adm_no); // Debugging
+
+    const { data, error } = await supabase
+      .from('students') // Replace with your students table name
+      .select('adm_no')
+      .eq('adm_no', adm_no);
+
+    console.log('Validation response:', data, error); // Debugging
+
+    if (error) {
+      console.error('Error validating admission number:', error);
+      return false; // Database error
+    }
+
+    if (data.length === 0) {
+      console.error('Admission number not found:', adm_no);
+      return false; // Admission number does not exist
+    }
+
+    return true; // Admission number exists
+  };
+
   const submit = async () => {
-    const { username, email, password, school, role } = form;
+    const { adm_no, email, password, school, role } = form;
 
     // Validation
-    if (!username || !email || !password || !school || !role) {
+    if (!adm_no || !email || !password || !school || !role) {
       Alert.alert('Error', 'All fields are required');
       return;
     }
@@ -38,13 +61,20 @@ const SignUp = () => {
     try {
       setIsSubmitting(true);
 
+      // Validate admission number
+      const isAdmNoValid = await validateAdmNo(adm_no);
+      if (!isAdmNoValid) {
+        Alert.alert('Error', 'Invalid admission number');
+        return;
+      }
+
       // Supabase sign-up call
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
           data: {
-            username,
+            adm_no,
             school,
             role,
           },
@@ -53,6 +83,17 @@ const SignUp = () => {
 
       if (error) {
         Alert.alert('Error', error.message);
+        return;
+      }
+
+      // Insert into 'parents' or 'teachers' table based on role
+      const table = role === 'parent' ? 'parents' : 'teachers';
+      const { error: tableError } = await supabase
+        .from(table)
+        .insert([{ adm_no, email, school }]);
+
+      if (tableError) {
+        Alert.alert('Error', 'Failed to save user data');
         return;
       }
 
@@ -97,13 +138,13 @@ const SignUp = () => {
         </Picker>
       </View>
 
-      {/* Username Input */}
+      {/* Admission Number Input */}
       <TextInput
         style={tw`w-full border border-gray-400 rounded-lg p-4 text-base text-black mb-4`}
-        placeholder="Username"
+        placeholder="Admission Number"
         placeholderTextColor="#888888"
-        value={form.username}
-        onChangeText={(text) => handleChange('username', text)}
+        value={form.adm_no}
+        onChangeText={(text) => handleChange('adm_no', text)}
       />
 
       {/* Email Input */}
