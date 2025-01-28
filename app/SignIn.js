@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StatusBar, Alert } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StatusBar, Alert, Modal } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import { useNavigation } from '@react-navigation/native';
 import tw from 'twrnc';
@@ -12,6 +12,9 @@ const SignIn = () => {
   const [password, setPassword] = useState('');
   const [passwordVisible, setPasswordVisible] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isForgotPasswordModalVisible, setIsForgotPasswordModalVisible] = useState(false);
+  const [emailForReset, setEmailForReset] = useState('');
+  const [isResettingPassword, setIsResettingPassword] = useState(false);
   const navigation = useNavigation();
 
   // Handle sign-in
@@ -55,6 +58,32 @@ const SignIn = () => {
       Alert.alert('Error', error.message || 'Failed to sign in.');
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  // Handle forgot password
+  const handleForgotPassword = async () => {
+    if (!emailForReset) {
+      Alert.alert('Error', 'Please enter your email address');
+      return;
+    }
+
+    try {
+      setIsResettingPassword(true);
+
+      // Send password reset email using the correct method
+      const { error } = await supabase.auth.resetPasswordForEmail(emailForReset);
+
+      if (error) {
+        throw error;
+      }
+
+      Alert.alert('Success', 'Password reset email sent! Check your inbox.');
+      setIsForgotPasswordModalVisible(false); // Close the modal
+    } catch (error) {
+      Alert.alert('Error', error.message || 'Failed to send reset email.');
+    } finally {
+      setIsResettingPassword(false);
     }
   };
 
@@ -131,6 +160,11 @@ const SignIn = () => {
         </Text>
       </TouchableOpacity>
 
+      {/* Forgot Password Link */}
+      <TouchableOpacity onPress={() => setIsForgotPasswordModalVisible(true)}>
+        <Text style={tw`text-blue-600 font-bold mb-4`}>Forgot Password?</Text>
+      </TouchableOpacity>
+
       {/* Navigate to Sign Up */}
       <Text style={tw`text-sm text-black`}>
         Don't have an account?{' '}
@@ -141,6 +175,43 @@ const SignIn = () => {
           Sign up
         </Text>
       </Text>
+
+      {/* Forgot Password Modal */}
+      <Modal
+        visible={isForgotPasswordModalVisible}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setIsForgotPasswordModalVisible(false)}
+      >
+        <View style={tw`flex-1 justify-center items-center bg-black bg-opacity-50`}>
+          <View style={tw`bg-white w-11/12 p-6 rounded-lg`}>
+            <Text style={tw`text-xl font-bold mb-4`}>Forgot Password</Text>
+            <TextInput
+              style={tw`w-full border border-gray-400 rounded-lg p-4 text-base text-black mb-4`}
+              placeholder="Enter your email"
+              value={emailForReset}
+              onChangeText={setEmailForReset}
+              placeholderTextColor="#888888"
+              keyboardType="email-address"
+            />
+            <TouchableOpacity
+              style={[
+                tw`w-full bg-blue-600 rounded-lg py-3 mb-4`,
+                isResettingPassword && tw`opacity-50`,
+              ]}
+              onPress={handleForgotPassword}
+              disabled={isResettingPassword}
+            >
+              <Text style={tw`text-white text-center text-base font-bold`}>
+                {isResettingPassword ? 'Sending...' : 'Send Reset Email'}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setIsForgotPasswordModalVisible(false)}>
+              <Text style={tw`text-center text-blue-600 font-bold`}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };

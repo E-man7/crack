@@ -2,12 +2,17 @@ import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import AppNavigator from './AppNavigator';
+import { UserProvider } from './context/UserContext'; // Import the UserProvider
 
 export default function App() {
   const [showNavigator, setShowNavigator] = useState(false);
 
   if (showNavigator) {
-    return <AppNavigator />; // Show the main navigation once "Get Started" is pressed
+    return (
+      <UserProvider>
+        <AppNavigator />
+      </UserProvider>
+    );
   }
 
   return (

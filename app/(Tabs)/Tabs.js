@@ -39,6 +39,7 @@ const TabNavigator = () => {
           justifyContent: 'center', // Align items in the center of the tab bar
         },
         tabBarLabelPosition: 'below-icon', // Ensures the label is positioned correctly below the icon
+        headerShown: false, // Hide the header for all screens in the TabNavigator
       })}
     >
       <Tab.Screen name="Home" component={Home} />
@@ -58,7 +59,7 @@ const Tabs = () => {
         name="Main"
         component={TabNavigator}
         options={{
-          headerShown: false, // Remove the header entirely
+          headerShown: false, // Remove the header entirely for the stack
         }}
       />
     </Stack.Navigator>
