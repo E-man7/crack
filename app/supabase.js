@@ -13,4 +13,6 @@ const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   },
 });
 
-export default supabase; // Ensure this is exported as default
+console.log('Supabase client initialized:', supabase); // Debugging
+
+export default supabase;

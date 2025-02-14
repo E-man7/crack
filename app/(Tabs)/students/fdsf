@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, Image, ScrollView, ActivityIndicator, TouchableOpacity, Alert, PermissionsAndroid, Platform } from 'react-native';
 import { BarChart, ProgressChart } from 'react-native-chart-kit';
 import { Dimensions } from 'react-native';
-import supabase from '../supabase';
+import supabase from '../../supabase';
 import { launchImageLibrary, launchCamera } from 'react-native-image-picker';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 
@@ -13,7 +13,8 @@ const Home = ({ navigation }) => {
   const [loading, setLoading] = useState(true);
   const [studentImage, setStudentImage] = useState(null);
   const [attendanceData, setAttendanceData] = useState(null);
-  const [scoresData, setScoresData] = useState(null);
+  const [scoresData, setScoresData] = useState([]);
+  const [subjects, setSubjects] = useState([]);
 
   // Function to request camera and storage permissions
   const requestPermissions = async () => {
@@ -72,31 +73,21 @@ const Home = ({ navigation }) => {
 
         if (feeError) throw feeError;
 
-        // Fetch attendance data from the 'performance' table using adm_no
+        // Fetch attendance data from the 'attendance' table using adm_no
         const { data: attendanceData, error: attendanceError } = await supabase
-          .from('performance')
+          .from('attendance')
           .select('attendance')
           .eq('adm_no', user.user_metadata.adm_no)
           .single();
 
         if (attendanceError) throw attendanceError;
 
-        // Fetch scores data from the 'scores' table using adm_no
-        const { data: scoresData, error: scoresError } = await supabase
-          .from('scores')
-          .select('*')
-          .eq('adm_no', user.user_metadata.adm_no)
-          .single();
-
-        if (scoresError) throw scoresError;
-
-        // Combine student, fee, attendance, and scores data into a single object
+        // Combine student, fee, attendance data into a single object
         const combinedData = {
           ...studentData,
           total_fees: feeData?.total_fees || 0, // Default to 0 if feeData is null
           paid_fees: feeData?.paid_fees || 0,   // Default to 0 if feeData is null
           attendance: attendanceData?.attendance || 0, // Default to 0 if attendanceData is null
-          scores: scoresData || {}, // Add scores data
         };
 
         // Log the combined data for debugging
@@ -104,7 +95,6 @@ const Home = ({ navigation }) => {
 
         // Set the combined data in state
         setUserData(combinedData);
-        setScoresData(scoresData); // Set scores data in state
       } catch (error) {
         console.error('Error fetching user data:', error);
       } finally {
@@ -115,131 +105,60 @@ const Home = ({ navigation }) => {
     fetchUserData();
   }, []);
 
-  // Function to upload image to Supabase Storage
-  const uploadImageToSupabase = async (uri, adm_no) => {
-    try {
-      // Convert the image URI to a Blob
-      const response = await fetch(uri);
-      const blob = await response.blob();
+  // Fetch scores and subjects data
+  useEffect(() => {
+    const fetchScoresAndSubjects = async () => {
+      try {
+        // Fetch the current authenticated user
+        const { data: { user }, error: authError } = await supabase.auth.getUser();
+        if (authError) throw authError;
 
-      // Generate a unique file name
-      const fileName = `${adm_no}_${new Date().getTime()}.jpg`;
+        // Fetch scores for the logged-in student
+        const { data: scoresData, error: scoresError } = await supabase
+          .from('scores')
+          .select('*')
+          .eq('adm_no', user.user_metadata.adm_no);
 
-      // Upload the image to Supabase Storage
-      const { data, error } = await supabase.storage
-        .from('student-images')
-        .upload(fileName, blob);
+        if (scoresError) throw scoresError;
 
-      if (error) throw error;
+        // Fetch all subjects
+        const { data: subjectsData, error: subjectsError } = await supabase
+          .from('subjects')
+          .select('*');
 
-      // Get the public URL of the uploaded image
-      const { data: publicUrlData } = supabase.storage
-        .from('student-images')
-        .getPublicUrl(fileName);
+        if (subjectsError) throw subjectsError;
 
-      console.log('Image uploaded. Public URL:', publicUrlData.publicUrl); // Log the public URL
-      return publicUrlData.publicUrl;
-    } catch (error) {
-      console.error('Error uploading image:', error);
-      return null;
-    }
-  };
+        // Map scores to their respective subjects
+        const mappedScores = subjectsData.map(subject => {
+          const scoreData = scoresData.find(score => score.subject_id === subject.id);
+          return {
+            subjectName: subject.subject_name,
+            score: scoreData ? scoreData.score : 0, // Default to 0 if no score exists
+          };
+        });
 
-  // Function to handle image picker
-  const handleImagePicker = async () => {
-    Alert.alert(
-      'Choose Image',
-      'Select an option to upload your profile picture',
-      [
-        {
-          text: 'Choose from Gallery',
-          onPress: () => launchImagePicker('gallery'),
-        },
-        {
-          text: 'Take a Photo',
-          onPress: () => launchImagePicker('camera'),
-        },
-        {
-          text: 'Cancel',
-          style: 'cancel',
-        },
-      ],
-      { cancelable: true }
-    );
-  };
-
-  // Function to launch image picker or camera
-  const launchImagePicker = async (type) => {
-    const options = {
-      mediaType: 'photo',
-      includeBase64: false,
-      maxHeight: 200,
-      maxWidth: 200,
+        // Set the mapped data in state
+        setSubjects(subjectsData);
+        setScoresData(mappedScores);
+      } catch (error) {
+        console.error('Error fetching scores and subjects:', error);
+      }
     };
 
-    const launchFunction = type === 'gallery' ? launchImageLibrary : launchCamera;
-
-    launchFunction(options, async (response) => {
-      console.log('ImagePicker Response:', response); // Log the response
-
-      if (response.didCancel) {
-        console.log('User cancelled image picker');
-      } else if (response.error) {
-        console.log('ImagePicker Error: ', response.error);
-      } else if (response.assets && response.assets.length > 0) {
-        const source = { uri: response.assets[0].uri };
-        console.log('Selected Image URI:', source.uri); // Log the selected image URI
-        setStudentImage(source); // Set the selected image
-
-        // Upload the image to Supabase Storage
-        const imageUrl = await uploadImageToSupabase(source.uri, userData.adm_no);
-        if (imageUrl) {
-          console.log('Image uploaded successfully. URL:', imageUrl); // Log the uploaded image URL
-          // Update the student's profile image URL in the database
-          await supabase
-            .from('students')
-            .update({ profile_image: imageUrl })
-            .eq('adm_no', userData.adm_no);
-        }
-      }
-    });
-  };
-
-  // Display loading indicator while fetching data
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#037f8c" />
-      </View>
-    );
-  }
-
-  // Display error message if no user data is found
-  if (!userData) {
-    return (
-      <View style={styles.loadingContainer}>
-        <Text style={styles.errorText}>Failed to load user data.</Text>
-      </View>
-    );
-  }
+    fetchScoresAndSubjects();
+  }, []);
 
   // Calculate fees
-  const totalFees = Number(userData.total_fees) || 0;
-  const paidFees = Number(userData.paid_fees) || 0;
+  const totalFees = Number(userData?.total_fees) || 0;
+  const paidFees = Number(userData?.paid_fees) || 0;
   const outstandingFees = totalFees - paidFees;
 
   // Bar chart data
   const barData = {
-    labels: ['Math', 'English', 'Science', 'History', 'Art'],
+    labels: subjects.map(subject => subject.subject_name), // Use subject names as labels
     datasets: [
       {
-        data: [
-          scoresData?.math || 0,
-          scoresData?.english || 0,
-          scoresData?.science || 0,
-          scoresData?.history || 0,
-          scoresData?.art || 0,
-        ], // Use scores data or default to 0
+        data: scoresData.map(score => score.score), // Use scores data
       },
     ],
   };
@@ -265,6 +184,24 @@ const Home = ({ navigation }) => {
       stroke: '#e0e0e0', // Grid line color
     },
   };
+
+  // Display loading indicator while fetching data
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#037f8c" />
+      </View>
+    );
+  }
+
+  // Display error message if no user data is found
+  if (!userData) {
+    return (
+      <View style={styles.loadingContainer}>
+        <Text style={styles.errorText}>Failed to load user data.</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>

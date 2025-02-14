@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StatusBar, Alert, Modal } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StatusBar, Alert } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import { useNavigation } from '@react-navigation/native';
 import tw from 'twrnc';
@@ -9,81 +9,79 @@ const SignIn = () => {
   const [selectedSchool, setSelectedSchool] = useState('');
   const [selectedRole, setSelectedRole] = useState('');
   const [adm_no, setAdmNo] = useState('');
+  const [tsc_number, setTscNumber] = useState('');
   const [password, setPassword] = useState('');
   const [passwordVisible, setPasswordVisible] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isForgotPasswordModalVisible, setIsForgotPasswordModalVisible] = useState(false);
-  const [emailForReset, setEmailForReset] = useState('');
-  const [isResettingPassword, setIsResettingPassword] = useState(false);
   const navigation = useNavigation();
 
   // Handle sign-in
   const handleSignIn = async () => {
-    if (!adm_no || !password || !selectedRole) {
+    if (!selectedSchool || !password || !selectedRole) {
       Alert.alert('Error', 'All fields are required');
       return;
     }
 
+    // Validate admission number (parent) or TSC number (teacher)
+    if (selectedRole === 'parent' && !adm_no) {
+      Alert.alert('Error', 'Admission number is required');
+      return;
+    }
+    if (selectedRole === 'teacher' && !tsc_number) {
+      Alert.alert('Error', 'TSC number is required');
+      return;
+    }
+
     if (isSubmitting) return;
+    setIsSubmitting(true);
 
     try {
-      setIsSubmitting(true);
+      const identifierField = selectedRole === 'parent' ? 'adm_no' : 'tsc_number';
+      const identifierValue = selectedRole === 'parent' ? adm_no : tsc_number;
 
-      // Determine the table based on selected role
-      const table = selectedRole === 'parent' ? 'parents' : 'teachers';
-
-      // Fetch email from the correct table
+      // Fetch user data from Supabase
       const { data: userData, error: userError } = await supabase
-        .from(table)
-        .select('email')
-        .eq('adm_no', adm_no)
-        .single();
+        .from('users')
+        .select('id, email')
+        .eq(identifierField, identifierValue)
+        .eq('school', selectedSchool)
+        .eq('role', selectedRole)
+        .maybeSingle();
 
-      if (userError || !userData?.email) {
-        Alert.alert('Error', 'Invalid admission number or role');
+      if (userError) {
+        console.error('Error fetching user:', userError);
+        Alert.alert('Error', 'Error fetching user data. Try again.');
         return;
       }
 
-      // Sign in with email and password
-      const { error } = await supabase.auth.signInWithPassword({
+      if (!userData) {
+        Alert.alert('Error', 'Invalid credentials. Check your details and try again.');
+        return;
+      }
+
+      // Sign in using email and password
+      const { error: signInError } = await supabase.auth.signInWithPassword({
         email: userData.email,
         password,
       });
 
-      if (error) throw error;
+      if (signInError) {
+        throw signInError;
+      }
 
       Alert.alert('Success', 'Signed in successfully!');
-      navigation.replace('Home');
+
+      // Navigate based on role
+      if (selectedRole === 'teacher') {
+        navigation.replace('TeacherTabs'); // Navigate to TeacherTabs for teachers
+      } else {
+        navigation.replace('Home', { userRole: selectedRole }); // Navigate to Home for parents/students
+      }
+
     } catch (error) {
       Alert.alert('Error', error.message || 'Failed to sign in.');
     } finally {
       setIsSubmitting(false);
-    }
-  };
-
-  // Handle forgot password
-  const handleForgotPassword = async () => {
-    if (!emailForReset) {
-      Alert.alert('Error', 'Please enter your email address');
-      return;
-    }
-
-    try {
-      setIsResettingPassword(true);
-
-      // Send password reset email using the correct method
-      const { error } = await supabase.auth.resetPasswordForEmail(emailForReset);
-
-      if (error) {
-        throw error;
-      }
-
-      Alert.alert('Success', 'Password reset email sent! Check your inbox.');
-      setIsForgotPasswordModalVisible(false); // Close the modal
-    } catch (error) {
-      Alert.alert('Error', error.message || 'Failed to send reset email.');
-    } finally {
-      setIsResettingPassword(false);
     }
   };
 
@@ -96,11 +94,7 @@ const SignIn = () => {
 
       {/* School Picker */}
       <View style={tw`w-full border border-gray-400 rounded-lg mb-4`}>
-        <Picker
-          selectedValue={selectedSchool}
-          onValueChange={(itemValue) => setSelectedSchool(itemValue)}
-          style={tw`h-12 text-black`}
-        >
+        <Picker selectedValue={selectedSchool} onValueChange={setSelectedSchool} style={tw`h-12 text-black`}>
           <Picker.Item label="Select School" value="" />
           <Picker.Item label="School A" value="school_a" />
           <Picker.Item label="School B" value="school_b" />
@@ -109,25 +103,34 @@ const SignIn = () => {
 
       {/* Role Picker */}
       <View style={tw`w-full border border-gray-400 rounded-lg mb-4`}>
-        <Picker
-          selectedValue={selectedRole}
-          onValueChange={(itemValue) => setSelectedRole(itemValue)}
-          style={tw`h-12 text-black`}
-        >
+        <Picker selectedValue={selectedRole} onValueChange={setSelectedRole} style={tw`h-12 text-black`}>
           <Picker.Item label="Select Role" value="" />
-          <Picker.Item label="Teacher" value="teacher" />
           <Picker.Item label="Parent" value="parent" />
+          <Picker.Item label="Teacher" value="teacher" />
         </Picker>
       </View>
 
-      {/* Admission Number Input */}
-      <TextInput
-        style={tw`w-full border border-gray-400 rounded-lg p-4 text-base text-black mb-4`}
-        placeholder="Admission Number"
-        value={adm_no}
-        onChangeText={setAdmNo}
-        placeholderTextColor="#888888"
-      />
+      {/* Admission Number Input (for Parents) */}
+      {selectedRole === 'parent' && (
+        <TextInput
+          style={tw`w-full border border-gray-400 rounded-lg p-4 text-base text-black mb-4`}
+          placeholder="Admission Number"
+          value={adm_no}
+          onChangeText={setAdmNo}
+          placeholderTextColor="#888888"
+        />
+      )}
+
+      {/* TSC Number Input (for Teachers) */}
+      {selectedRole === 'teacher' && (
+        <TextInput
+          style={tw`w-full border border-gray-400 rounded-lg p-4 text-base text-black mb-4`}
+          placeholder="TSC Number"
+          value={tsc_number}
+          onChangeText={setTscNumber}
+          placeholderTextColor="#888888"
+        />
+      )}
 
       {/* Password Input */}
       <View style={tw`w-full border border-gray-400 rounded-lg flex-row items-center mb-4`}>
@@ -140,18 +143,13 @@ const SignIn = () => {
           placeholderTextColor="#888888"
         />
         <TouchableOpacity onPress={() => setPasswordVisible(!passwordVisible)}>
-          <Text style={tw`text-blue-600 font-bold px-4`}>
-            {passwordVisible ? 'Hide' : 'Show'}
-          </Text>
+          <Text style={tw`text-blue-600 font-bold px-4`}>{passwordVisible ? 'Hide' : 'Show'}</Text>
         </TouchableOpacity>
       </View>
 
       {/* Sign In Button */}
       <TouchableOpacity
-        style={[
-          tw`w-full bg-blue-600 rounded-lg py-3 mb-4`,
-          isSubmitting && tw`opacity-50`,
-        ]}
+        style={[tw`w-full bg-blue-600 rounded-lg py-3 mb-4`, isSubmitting && tw`opacity-50`]}
         onPress={handleSignIn}
         disabled={isSubmitting}
       >
@@ -159,59 +157,6 @@ const SignIn = () => {
           {isSubmitting ? 'Signing In...' : 'Sign In'}
         </Text>
       </TouchableOpacity>
-
-      {/* Forgot Password Link */}
-      <TouchableOpacity onPress={() => setIsForgotPasswordModalVisible(true)}>
-        <Text style={tw`text-blue-600 font-bold mb-4`}>Forgot Password?</Text>
-      </TouchableOpacity>
-
-      {/* Navigate to Sign Up */}
-      <Text style={tw`text-sm text-black`}>
-        Don't have an account?{' '}
-        <Text
-          onPress={() => navigation.navigate('SignUp')}
-          style={tw`text-blue-600 font-bold`}
-        >
-          Sign up
-        </Text>
-      </Text>
-
-      {/* Forgot Password Modal */}
-      <Modal
-        visible={isForgotPasswordModalVisible}
-        transparent={true}
-        animationType="slide"
-        onRequestClose={() => setIsForgotPasswordModalVisible(false)}
-      >
-        <View style={tw`flex-1 justify-center items-center bg-black bg-opacity-50`}>
-          <View style={tw`bg-white w-11/12 p-6 rounded-lg`}>
-            <Text style={tw`text-xl font-bold mb-4`}>Forgot Password</Text>
-            <TextInput
-              style={tw`w-full border border-gray-400 rounded-lg p-4 text-base text-black mb-4`}
-              placeholder="Enter your email"
-              value={emailForReset}
-              onChangeText={setEmailForReset}
-              placeholderTextColor="#888888"
-              keyboardType="email-address"
-            />
-            <TouchableOpacity
-              style={[
-                tw`w-full bg-blue-600 rounded-lg py-3 mb-4`,
-                isResettingPassword && tw`opacity-50`,
-              ]}
-              onPress={handleForgotPassword}
-              disabled={isResettingPassword}
-            >
-              <Text style={tw`text-white text-center text-base font-bold`}>
-                {isResettingPassword ? 'Sending...' : 'Send Reset Email'}
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => setIsForgotPasswordModalVisible(false)}>
-              <Text style={tw`text-center text-blue-600 font-bold`}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
     </View>
   );
 };

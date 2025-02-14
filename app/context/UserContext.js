@@ -1,43 +1,74 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import supabase from '../supabase'; // Adjust the import path as needed
+import { supabase } from '../supabase'; // Import your existing Supabase instance
 
-// Create a context for the user
 const UserContext = createContext();
 
-// Create a provider component
 export const UserProvider = ({ children }) => {
   const [user, setUser] = useState(null);
+  const [teacher, setTeacher] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  // Fetch the user session on component mount
   useEffect(() => {
-    const fetchUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      setUser(user);
-    };
-
-    fetchUser();
-
-    // Listen for auth state changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      setUser(session?.user || null);
-    });
-
-    // Cleanup subscription on unmount
-    return () => subscription.unsubscribe();
+    refreshUser();
   }, []);
 
+  const refreshUser = async () => {
+    setLoading(true);
+    setError(null);
+  
+    try {
+      // Get authenticated user
+      const { data: userSession, error: sessionError } = await supabase.auth.getUser();
+      if (sessionError) throw sessionError;
+  
+      console.log('Authenticated User:', userSession); // ✅ Log user session
+  
+      const userId = userSession?.user?.id;
+      if (!userId) throw new Error('User not authenticated');
+  
+      // Fetch user details
+      const { data: userData, error: userError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', userId)
+        .maybeSingle(); 
+  
+      if (userError) throw userError;
+      if (!userData) throw new Error('User not found in database'); 
+  
+      console.log('User Data:', userData); // ✅ Log fetched user data
+      setUser(userData);
+  
+      // Fetch teacher details using TSC number
+      if (userData?.tsc_number) {
+        const { data: teacherData, error: teacherError } = await supabase
+          .from('teachers')
+          .select('*')
+          .eq('tsc_number', userData.tsc_number)
+          .maybeSingle();
+  
+        if (teacherError) throw teacherError;
+  
+        console.log('Teacher Data:', teacherData); // ✅ Log fetched teacher data
+        setTeacher(teacherData || null);
+      } else {
+        setTeacher(null);
+      }
+    } catch (error) {
+      console.error('Error fetching user or teacher data:', error);
+      setError(error.message || 'Failed to load user data.');
+    }
+  
+    setLoading(false);
+  };
+  
+
   return (
-    <UserContext.Provider value={{ user }}>
+    <UserContext.Provider value={{ user, teacher, loading, error, refreshUser }}>
       {children}
     </UserContext.Provider>
   );
 };
 
-// Custom hook to use the user context
-export const useUser = () => {
-  const context = useContext(UserContext);
-  if (!context) {
-    throw new Error('useUser must be used within a UserProvider');
-  }
-  return context;
-};
+export const useUser = () => useContext(UserContext);
