@@ -33,9 +33,9 @@ const TeacherTabs = () => {
       })}
     >
       <Tab.Screen name="Dashboard" component={Dashboard} />
+      <Tab.Screen name="Classes" component={Classes} />
       <Tab.Screen name="Assignments" component={Assignments} />
       <Tab.Screen name="Notifications" component={Notifications} />
-      <Tab.Screen name="Classes" component={Classes} />
     </Tab.Navigator>
   );
 };
