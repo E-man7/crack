@@ -32,6 +32,14 @@
           "resizeMode": "contain",
           "backgroundColor": "#ffffff"
         }
+      ],
+      "expo-font",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow access to your photos to upload images.",
+          "cameraPermission": "Allow access to your camera to take photos."
+        }
       ]
     ],
     "experiments": {

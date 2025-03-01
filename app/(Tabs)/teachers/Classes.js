@@ -1,7 +1,7 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View, Text, StyleSheet, SafeAreaView, FlatList, TouchableOpacity, ActivityIndicator,
-  ScrollView, RefreshControl, TextInput
+  ScrollView, TextInput
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import supabase from '../../supabase';
@@ -16,10 +16,11 @@ const ClassesTab = () => {
     scores: [],
     grades: [],
     reports: [],
+    fees: []
   });
   const [displayOption, setDisplayOption] = useState('progress');
+  const [selectedTerm, setSelectedTerm] = useState('Term 1');
   const [isLoading, setIsLoading] = useState(false);
-  const [isRefreshing, setIsRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
@@ -33,12 +34,10 @@ const ClassesTab = () => {
       .select('class')
       .neq('class', null);
 
-    if (error) {
-      console.error('Error fetching classes:', error);
-    } else {
-      const uniqueClasses = [...new Set(data.map(item => item.class))];
-      setClasses(uniqueClasses);
-    }
+    if (error) console.error('Error fetching classes:', error);
+    else setClasses([...new Set(data.map(item => item.class))]);
+
+
     setIsLoading(false);
   };
 
@@ -49,11 +48,9 @@ const ClassesTab = () => {
       .select('*')
       .eq('class', className);
 
-    if (error) {
-      console.error('Error fetching students:', error);
-    } else {
-      setStudents(data);
-    }
+    if (error) console.error('Error fetching students:', error);
+    else setStudents(data);
+
     setIsLoading(false);
   };
 
@@ -80,7 +77,8 @@ const ClassesTab = () => {
       const { data: attendanceData } = await supabase
         .from('attendance')
         .select('*')
-        .eq('adm_no', admNo);
+        .eq('adm_no', admNo)
+        .eq('term', selectedTerm);
 
       const { data: scoresData } = await supabase
         .from('scores')
@@ -95,6 +93,12 @@ const ClassesTab = () => {
       const { data: reportsData } = await supabase
         .from('reports')
         .select('*')
+        .eq('adm_no', admNo)
+        .eq('period', selectedTerm);
+
+      const { data: feesData } = await supabase
+        .from('fees')
+        .select('*')
         .eq('adm_no', admNo);
 
       const subjectIds = [...new Set([...scoresData.map(s => s.subject_id), ...gradesData.map(g => g.subject_id)])];
@@ -105,6 +109,7 @@ const ClassesTab = () => {
         scores: scoresData.map(s => ({ ...s, subject_name: subjectNames[s.subject_id] || 'Unknown' })) || [],
         grades: gradesData.map(g => ({ ...g, subject_name: subjectNames[g.subject_id] || 'Unknown' })) || [],
         reports: reportsData || [],
+        fees: feesData || []
       });
     } catch (error) {
       console.error('Error fetching student details:', error);
@@ -113,17 +118,20 @@ const ClassesTab = () => {
     }
   };
 
-  const onRefresh = useCallback(async () => {
-    setIsRefreshing(true);
-    await fetchClasses();
-    if (selectedClass) await fetchStudentsByClass(selectedClass);
-    setIsRefreshing(false);
-  }, [selectedClass]);
-
-  const filteredStudents = students.filter(student =>
-    student.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    student.adm_no.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const getGrade = (score) => {
+    if (score >= 80) return 'A';
+    if (score >= 75) return 'A-';
+    if (score >= 70) return 'B+';
+    if (score >= 65) return 'B';
+    if (score >= 60) return 'B-';
+    if (score >= 55) return 'C+';
+    if (score >= 50) return 'C';
+    if (score >= 45) return 'C-';
+    if (score >= 40) return 'D+';
+    if (score >= 35) return 'D';
+    if (score >= 30) return 'D-';
+    return 'E';
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -146,9 +154,6 @@ const ClassesTab = () => {
               <Text style={styles.classText}>{item}</Text>
             </TouchableOpacity>
           )}
-          refreshControl={
-            <RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} />
-          }
         />
       )}
 
@@ -162,7 +167,9 @@ const ClassesTab = () => {
             onChangeText={setSearchQuery}
           />
           <FlatList
-            data={filteredStudents}
+            data={students.filter(student =>
+              student.name.toLowerCase().includes(searchQuery.toLowerCase())
+            )}
             keyExtractor={(item) => item.adm_no}
             renderItem={({ item }) => (
               <TouchableOpacity
@@ -182,76 +189,64 @@ const ClassesTab = () => {
       {selectedStudent && (
         <ScrollView>
           <Text style={styles.title}>Student Details</Text>
-          <View style={styles.pickerContainer}>
-            <Picker
-              selectedValue={displayOption}
-              style={styles.picker}
-              onValueChange={(itemValue) => setDisplayOption(itemValue)}
-            >
-              <Picker.Item label="Progress" value="progress" />
-            </Picker>
-          </View>
+          <Picker selectedValue={displayOption} style={styles.picker} onValueChange={setDisplayOption}>
+            <Picker.Item label="Progress" value="progress" />
+            <Picker.Item label="Fees" value="fees" />
+          </Picker>
 
-          {isLoading ? (
-            <ActivityIndicator size="large" color="#0000ff" />
-          ) : (
-            <View style={styles.detailsContainer}>
-              {/* Attendance */}
-              {studentDetails.attendance.length > 0 && (
-                <>
-                  <Text style={styles.detailTitle}>Attendance</Text>
-                  {studentDetails.attendance.map((attendance, index) => (
-                    <View key={index} style={styles.detailItem}>
-                      <Text>Month: {attendance.month}</Text>
-                      <Text>Year: {attendance.year}</Text>
-                      <Text>Term: {attendance.term}</Text>
-                      <Text>Attendance: {attendance.attendance}/{attendance.total_days}</Text>
-                    </View>
-                  ))}
-                </>
-              )}
+          {displayOption === 'progress' && (
+            <>
+              <Picker selectedValue={selectedTerm} style={styles.picker} onValueChange={setSelectedTerm}>
+                <Picker.Item label="Term 1" value="Term 1" />
+                <Picker.Item label="Term 2" value="Term 2" />
+                <Picker.Item label="Term 3" value="Term 3" />
+              </Picker>
 
-              {/* Scores */}
-              {studentDetails.scores.length > 0 && (
-                <>
-                  <Text style={styles.detailTitle}>Scores</Text>
-                  {studentDetails.scores.map((score, index) => (
-                    <View key={index} style={styles.detailItem}>
-                      <Text>Subject: {score.subject_name}</Text>
-                      <Text>Score: {score.score}</Text>
-                    </View>
-                  ))}
-                </>
-              )}
+              <Text style={styles.detailTitle}>Attendance</Text>
+              {studentDetails.attendance.map((att, index) => (
+                <View key={index} style={styles.detailItem}>
+                  <Text>Month: {att.month}</Text>
+                  <Text>Days: {att.attendance}/{att.total_days}</Text>
+                </View>
+              ))}
 
-              {/* Grades */}
-              {studentDetails.grades.length > 0 && (
-                <>
-                  <Text style={styles.detailTitle}>Grades</Text>
-                  {studentDetails.grades.map((grade, index) => (
-                    <View key={index} style={styles.detailItem}>
-                      <Text>Subject: {grade.subject_name}</Text>
-                      <Text>Grade: {grade.grade}</Text>
-                      <Text>Term: {grade.term}</Text>
-                    </View>
-                  ))}
-                </>
-              )}
+              <Text style={styles.detailTitle}>Progress Table</Text>
+              <View style={styles.table}>
+                <View style={styles.tableRow}>
+                  <Text style={styles.tableHeader}>Subject</Text>
+                  <Text style={styles.tableHeader}>Score</Text>
+                  <Text style={styles.tableHeader}>Grade</Text>
+                </View>
+                {studentDetails.scores.map((score, index) => (
+                  <View key={index} style={styles.tableRow}>
+                    <Text>{score.subject_name}</Text>
+                    <Text>{score.score}</Text>
+                    <Text>{getGrade(score.score)}</Text>
+                  </View>
+                ))}
+              </View>
 
-              {/* Reports */}
-              {studentDetails.reports.length > 0 && (
-                <>
-                  <Text style={styles.detailTitle}>Reports</Text>
-                  {studentDetails.reports.map((report, index) => (
-                    <View key={index} style={styles.detailItem}>
-                      <Text>Type: {report.report_type}</Text>
-                      <Text>Score: {report.score}</Text>
-                      <Text>Period: {report.period}</Text>
-                    </View>
-                  ))}
-                </>
-              )}
-            </View>
+              <Text style={styles.detailTitle}>Reports</Text>
+              {studentDetails.reports.map((report, index) => (
+                <View key={index} style={styles.detailItem}>
+                  <Text>Type: {report.report_type}</Text>
+                  <Text>Score: {report.score}</Text>
+                  <Text>Period: {report.period}</Text>
+                </View>
+              ))}
+            </>
+          )}
+
+          {displayOption === 'fees' && (
+            <>
+              <Text style={styles.detailTitle}>Fees Information</Text>
+              {studentDetails.fees.map((fee, index) => (
+                <View key={index} style={styles.detailItem}>
+                  <Text>Total: {fee.total_fees}</Text>
+                  <Text>Paid: {fee.paid_fees}</Text>
+                </View>
+              ))}
+            </>
           )}
         </ScrollView>
       )}
@@ -263,19 +258,14 @@ const styles = StyleSheet.create({
   container: { flex: 1, padding: 16, backgroundColor: '#e3f2fd' },
   title: { fontSize: 24, fontWeight: 'bold', marginBottom: 16, color: '#1565c0' },
   classItem: { padding: 16, backgroundColor: '#bbdefb', borderRadius: 10, marginBottom: 8 },
-  studentItem: { padding: 16, backgroundColor: '#90caf9', borderRadius: 10, marginBottom: 8 },
-  pickerContainer: { backgroundColor: '#ffffff', borderRadius: 10, padding: 5, marginBottom: 10 },
-  detailsContainer: { padding: 16, backgroundColor: '#ffffff', borderRadius: 10 },
-  detailTitle: { fontSize: 20, fontWeight: 'bold', marginBottom: 8 },
-  searchInput: {
-    height: 40,
-    borderColor: '#90caf9',
-    borderWidth: 1,
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    marginBottom: 10,
-    backgroundColor: '#ffffff',
-  },
+  studentItem: { padding: 16, backgroundColor: '#e0f7fa', borderRadius: 10, marginBottom: 8 },
+  searchInput: { padding: 10, backgroundColor: '#fff', borderRadius: 10, marginBottom: 16 },
+  picker: { backgroundColor: '#fff', marginBottom: 16 },
+  detailTitle: { fontSize: 20, fontWeight: 'bold', marginTop: 16, marginBottom: 8 },
+  detailItem: { padding: 10, backgroundColor: '#fff', borderRadius: 10, marginBottom: 8 },
+  table: { marginTop: 10, borderWidth: 1, borderColor: '#000', borderRadius: 10 },
+  tableRow: { flexDirection: 'row', justifyContent: 'space-around', padding: 10, borderBottomWidth: 1 },
+  tableHeader: { fontWeight: 'bold' },
 });
 
 export default ClassesTab;
