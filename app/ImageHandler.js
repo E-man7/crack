@@ -1,137 +1,110 @@
-import * as ImagePicker from 'expo-image-picker';
-import { Camera } from 'expo-camera';
-import * as FileSystem from 'expo-file-system';
-import * as ImageManipulator from 'expo-image-manipulator';
-import { Alert } from 'react-native';
-import supabase from './supabase'; // Ensure this path is correct
+  import * as ImagePicker from 'expo-image-picker';
+  import * as FileSystem from 'expo-file-system';
+  import { supabase } from './supabase';
 
-// Helper function to convert a file URI to a Blob
-const uriToBlob = async (uri) => {
-  const response = await fetch(uri);
-  const blob = await response.blob();
-  return blob;
-};
+  const mediaTypeOptions = {
+    allowsEditing: true,
+    aspect: [1, 1],
+    quality: 0.8,
+    mediaTypes: ImagePicker.MediaTypeOptions.Images,
+  };
 
-// Define handleImageUpload
-const handleImageUpload = async (imageUri, userId, setAvatarUrl) => {
-  try {
-    console.log('Fetching image from URI:', imageUri); // Debugging log
+  const takeProfilePhoto = async (userId, userType) => {
+    return handleImageAction(userId, userType, 'camera');
+  };
 
-    // Convert the image URI to a Blob
-    const blob = await uriToBlob(imageUri);
+  const pickProfileFile = async (userId, userType) => {
+    return handleImageAction(userId, userType, 'gallery');
+  };
 
-    // Extract file extension and dynamically set contentType
-    const fileExt = imageUri.split('.').pop();
-    const fileName = `${userId}.${fileExt}`;
-    const contentType = `image/${fileExt}`;
+  const handleImageAction = async (userId, userType, source) => {
+    try {
+      const permissionRequest = source === 'camera'
+        ? ImagePicker.requestCameraPermissionsAsync()
+        : ImagePicker.requestMediaLibraryPermissionsAsync();
 
-    console.log('Uploading image to Supabase...'); // Debugging log
-    const { data, error } = await supabase
-      .storage
-      .from('files') // Use the bucket name 'files'
-      .upload(`public/${userId}/${fileName}`, blob, {
-        cacheControl: '3600',
-        upsert: true,
-        contentType: contentType, // Dynamically set content type
+      const { granted } = await permissionRequest;
+
+      if (!granted) {
+        return { success: false, error: 'Permission required' };
+      }
+
+      const pickerResult = source === 'camera'
+        ? await ImagePicker.launchCameraAsync(mediaTypeOptions)
+        : await ImagePicker.launchImageLibraryAsync(mediaTypeOptions);
+
+      if (pickerResult.canceled || !pickerResult.assets?.[0]?.uri) {
+        return { success: false, error: 'No image selected' };
+      }
+
+      return await uploadImage(pickerResult.assets[0].uri, userId, userType);
+    } catch (error) {
+      console.error(`Image ${source} error:`, error);
+      return { success: false, error: error.message };
+    }
+  };
+
+  const uploadImage = async (uri, userId, userType) => {
+    try {
+      if (!supabase?.storage) {
+        throw new Error('Supabase storage not initialized');
+      }
+
+      const fileInfo = await FileSystem.getInfoAsync(uri);
+      if (!fileInfo.exists) throw new Error('File not found');
+
+      const fileExt = uri.split('.').pop().toLowerCase();
+      const allowedExtensions = ['jpg', 'jpeg', 'png'];
+      
+      if (!allowedExtensions.includes(fileExt)) {
+        throw new Error('Only JPG/PNG images allowed');
+      }
+
+      if (fileInfo.size > 5 * 1024 * 1024) {
+        throw new Error('Maximum file size is 5MB');
+      }
+
+      const base64Data = await FileSystem.readAsStringAsync(uri, {
+        encoding: FileSystem.EncodingType.Base64,
       });
 
-    console.log('Supabase Upload Response:', data, error); // Debugging log
-    if (error) throw error;
+      const binaryString = atob(base64Data);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
 
-    // Get the public URL
-    const { data: { publicUrl } } = supabase
-      .storage
-      .from('files')
-      .getPublicUrl(`public/${userId}/${fileName}`);
+      // Determine folder based on user type
+      const folder = userType === 'teacher' ? 'teachers' : 'students';
+      const fileName = `profile-${userId}-${Date.now()}.${fileExt}`;
+      const filePath = `${folder}/${fileName}`;
 
-    console.log('Public URL:', publicUrl); // Debugging log
-    setAvatarUrl(publicUrl);
+      const { error } = await supabase.storage
+        .from('avatars')
+        .upload(filePath, bytes, {
+          contentType: `image/${fileExt === 'jpg' ? 'jpeg' : fileExt}`,
+          upsert: true,
+          cacheControl: '3600',
+        });
 
-    // Update the post with the file URL
-    const { error: updateError } = await supabase
-      .from('posts') // Assuming 'posts' is your table name
-      .update({ file: publicUrl })
-      .eq('user_id', userId);
+      if (error) throw error;
 
-    if (updateError) throw updateError;
+      const { data: { publicUrl } } = supabase.storage
+        .from('avatars')
+        .getPublicUrl(filePath);
 
-    Alert.alert('Success', 'Profile picture updated successfully!');
-  } catch (error) {
-    console.error('Error uploading image:', error);
-    Alert.alert('Error', `Failed to update profile picture: ${error.message}`);
-  }
-};
-
-// Now define pickImage and takePhoto
-export const pickImage = async (userId, setAvatarUrl) => {
-  try {
-    // Request media library permissions
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    console.log('Media Library Permission Status:', status); // Debugging log
-
-    if (status !== 'granted') {
-      Alert.alert('Permission required', 'Sorry, we need camera roll permissions to make this work!');
-      return;
+      return {
+        success: true,
+        publicUrl: `${publicUrl}?t=${Date.now()}`, // Add cache busting
+        path: filePath,
+      };
+    } catch (error) {
+      console.error('Upload failed:', error);
+      return { success: false, error: error.message };
     }
+  };
 
-    // Launch the image library
-    let result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images, // Correct property
-      allowsEditing: true, // Allow the user to crop/edit the image
-      aspect: [4, 3], // Aspect ratio for cropping
-      quality: 1, // Highest quality
-    });
-
-    console.log('Image Picker Result:', result); // Debugging log
-
-    // If the user selects an image, handle the upload
-    if (!result.canceled && result.assets && result.assets.length > 0) {
-      await handleImageUpload(result.assets[0].uri, userId, setAvatarUrl);
-    }
-  } catch (error) {
-    console.error('Error in pickImage:', error);
-    Alert.alert('Error', 'Failed to open image picker');
-  }
-};
-
-export const takePhoto = async (userId, setAvatarUrl) => {
-  try {
-    // Request camera permissions
-    const { status } = await Camera.requestCameraPermissionsAsync();
-    console.log('Camera Permission Status:', status); // Debugging log
-
-    if (status !== 'granted') {
-      Alert.alert('Permission required', 'Sorry, we need camera permissions to make this work!');
-      return;
-    }
-
-    // Launch the camera
-    let result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images, // Correct property
-      allowsEditing: true,
-      aspect: [4, 3],
-      quality: 0.8, // Reduced quality
-    });
-
-    console.log('Camera Result:', result); // Debugging log
-
-    // If the user takes a photo, handle the upload
-    if (!result.canceled && result.assets && result.assets.length > 0) {
-      console.log('Image URI:', result.assets[0].uri); // Debugging log
-      console.log('Image Size:', result.assets[0].fileSize); // Debugging log
-
-      // Compress the image
-      const compressedImage = await ImageManipulator.manipulateAsync(
-        result.assets[0].uri,
-        [{ resize: { width: 800 } }], // Resize to a maximum width of 800px
-        { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG } // Compress to 70% quality
-      );
-
-      console.log('Compressed Image URI:', compressedImage.uri); // Debugging log
-      await handleImageUpload(compressedImage.uri, userId, setAvatarUrl);
-    }
-  } catch (error) {
-    console.error('Error in takePhoto:', error);
-    Alert.alert('Error', 'Failed to open camera');
-  }
-};
+  export default {
+    takeProfilePhoto,
+    pickProfileFile,
+  };

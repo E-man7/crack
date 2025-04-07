@@ -1,0 +1,547 @@
+import React, { useEffect, useState, useContext } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  Image,
+  ScrollView,
+  ActivityIndicator,
+  TouchableOpacity,
+  Linking,
+  StatusBar,
+  RefreshControl,
+  useWindowDimensions,
+} from 'react-native';
+import supabase from '../../supabase';
+import Icon from 'react-native-vector-icons/MaterialIcons';
+import { BarChart, ProgressChart } from 'react-native-chart-kit';
+import { LinearGradient } from 'expo-linear-gradient';
+import { ThemeContext } from './ThemeContext'; // Ensure the path is correct
+
+const Home = ({ navigation }) => {
+  const themeContext = useContext(ThemeContext);
+
+  if (!themeContext) {
+    console.error('ThemeContext is undefined. Ensure ThemeProvider is wrapping the app.');
+    return null; // Or a fallback UI
+  }
+
+  const { isDarkMode, toggleTheme } = themeContext;
+
+  const [userData, setUserData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [studentImage, setStudentImage] = useState(null);
+  const [attendance, setAttendance] = useState(null);
+  const [subjects, setSubjects] = useState([]);
+  const [scoresData, setScoresData] = useState([]);
+  const [refreshing, setRefreshing] = useState(false);
+  const { width } = useWindowDimensions();
+
+  const fetchUserData = async () => {
+    try {
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError) throw authError;
+
+      const { data: studentData, error: studentError } = await supabase
+        .from('students')
+        .select('*')
+        .eq('adm_no', user.user_metadata.adm_no)
+        .single();
+
+      if (studentError) throw studentError;
+
+      if (studentData.profile_image) {
+        setStudentImage({ uri: studentData.profile_image });
+      }
+
+      const { data: feeData, error: feeError } = await supabase
+        .from('fees')
+        .select('*')
+        .eq('adm_no', user.user_metadata.adm_no)
+        .maybeSingle();
+
+      if (feeError) throw feeError;
+
+      const { data: attendanceData, error: attendanceError } = await supabase
+        .from('attendance')
+        .select('attendance, month')
+        .eq('adm_no', user.user_metadata.adm_no)
+        .single();
+
+      if (attendanceError) throw attendanceError;
+
+      const combinedData = {
+        ...studentData,
+        total_fees: feeData?.total_fees || 0,
+        paid_fees: feeData?.paid_fees || 0,
+      };
+
+      setUserData(combinedData);
+      setAttendance(attendanceData);
+    } catch (error) {
+      console.error('Error fetching user data:', error);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  const fetchScoresAndSubjects = async () => {
+    try {
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError) throw authError;
+
+      const { data: scoresData, error: scoresError } = await supabase
+        .from('scores')
+        .select('*')
+        .eq('adm_no', user.user_metadata.adm_no);
+
+      if (scoresError) throw scoresError;
+
+      const { data: subjectsData, error: subjectsError } = await supabase
+        .from('subjects')
+        .select('*');
+
+      if (subjectsError) throw subjectsError;
+
+      const mappedScores = subjectsData.map(subject => {
+        const scoreData = scoresData.find(score => score.subject_id === subject.id);
+        return {
+          subjectName: subject.subject_name,
+          score: scoreData ? scoreData.score : 0,
+        };
+      });
+
+      setSubjects(subjectsData);
+      setScoresData(mappedScores);
+    } catch (error) {
+      console.error('Error fetching scores and subjects:', error);
+    }
+  };
+
+  useEffect(() => {
+    fetchUserData();
+  }, []);
+
+  useEffect(() => {
+    if (userData) {
+      fetchScoresAndSubjects();
+    }
+  }, [userData]);
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    fetchUserData();
+  };
+
+  const calculateAttendancePercentage = (attendanceDays) => {
+    const totalDaysInMonth = 30;
+    if (attendanceDays !== undefined && attendanceDays !== null) {
+      return ((attendanceDays / totalDaysInMonth) * 100).toFixed(2);
+    }
+    return 'N/A';
+  };
+
+  const attendancePercentage = calculateAttendancePercentage(attendance?.attendance);
+
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#037f8c" />
+      </View>
+    );
+  }
+
+  if (!userData) {
+    return (
+      <View style={styles.loadingContainer}>
+        <Text style={styles.errorText}>Failed to load user data.</Text>
+      </View>
+    );
+  }
+
+  const totalFees = Number(userData.total_fees) || 0;
+  const paidFees = Number(userData.paid_fees) || 0;
+  const outstandingFees = totalFees - paidFees;
+
+  const barData = {
+    labels: subjects.map(subject => subject.subject_name),
+    datasets: [
+      {
+        data: scoresData.map(score => score.score),
+      },
+    ],
+  };
+
+  const progressData = {
+    labels: ['Paid', 'Outstanding'],
+    data: totalFees === 0 ? [0, 0] : [paidFees / totalFees, outstandingFees / totalFees],
+  };
+
+  const barChartConfig = {
+    backgroundColor: '#f5f5f5',
+    backgroundGradientFrom: '#f5f5f5',
+    backgroundGradientTo: '#f5f5f5',
+    decimalPlaces: 0,
+    color: (opacity = 1) => `rgba(3, 127, 140, ${opacity})`,
+    labelColor: (opacity = 1) => `rgba(0, 0, 0, ${opacity})`,
+    style: { borderRadius: 10 },
+    barPercentage: 0.5,
+    propsForBackgroundLines: {
+      strokeWidth: 1,
+      stroke: '#e0e0e0',
+    },
+  };
+
+  return (
+    <LinearGradient colors={isDarkMode ? ['#1f1f1f', '#121212'] : ['#49AAAE', '#AEF5F8']} style={styles.container}>
+      <StatusBar backgroundColor={isDarkMode ? '#1f1f1f' : '#037f8c'} barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
+      <ScrollView
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+      >
+        <View style={styles.dashboardHeader}>
+          <Text style={[styles.dashboardHeaderText, { color: isDarkMode ? '#ffffff' : '#000000' }]}>DASHBOARD</Text>
+          <TouchableOpacity onPress={toggleTheme} style={styles.themeToggleButton}>
+            <Icon name={isDarkMode ? 'wb-sunny' : 'brightness-2'} size={24} color={isDarkMode ? '#ffffff' : '#000000'} />
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => {}} style={styles.imageContainer}>
+            {studentImage ? (
+              <Image source={studentImage} style={styles.profileImage} />
+            ) : (
+              <View style={styles.placeholderImage}>
+                <Icon name="add-a-photo" size={40} color="#ffffff" />
+              </View>
+            )}
+          </TouchableOpacity>
+          <View style={styles.profileInfo}>
+            <Text style={styles.name}>Name: {userData.name}</Text>
+            <Text style={styles.grade}>Class: {userData.class}</Text>
+            <Text style={styles.adm}>ADM NO: {userData.adm_no}</Text>
+          </View>
+        </View>
+
+        {/* School Website Button */}
+        <TouchableOpacity
+          style={styles.websiteButton}
+          onPress={() => Linking.openURL('https://www.schoolwebsite.com')}
+        >
+          <Text style={styles.websiteButtonText}>Visit School Website</Text>
+          <Icon name="arrow-forward" size={20} color="#037f8c" />
+        </TouchableOpacity>
+
+        {/* Attendance Section */}
+        <TouchableOpacity onPress={() => navigation.navigate('Attendance')}>
+          <View style={styles.attendanceContainer}>
+            <View style={styles.attendanceCard}>
+              <Text style={styles.attendanceCardText}>Attendance</Text>
+              <Text style={styles.attendancePercentageText}>{attendancePercentage}%</Text>
+            </View>
+          </View>
+        </TouchableOpacity>
+
+        {/* Performance Section */}
+        <TouchableOpacity onPress={() => navigation.navigate('Progress')}>
+          <View style={styles.performanceContainer}>
+            <View style={styles.performanceCard}>
+              <Text style={styles.performanceText}>Performance</Text>
+              {subjects.length > 0 && scoresData.length > 0 ? (
+                <BarChart
+                  data={barData}
+                  width={width - 40}
+                  height={220}
+                  yAxisSuffix="%"
+                  chartConfig={barChartConfig}
+                  style={styles.barChart}
+                  fromZero
+                />
+              ) : (
+                <Text style={styles.errorText}>No performance data available.</Text>
+              )}
+            </View>
+          </View>
+        </TouchableOpacity>
+
+        {/* Combined Fee and Pie Chart Section */}
+<TouchableOpacity onPress={() => navigation.navigate('Fee')}>
+  <View style={styles.combinedCard}>
+    {/* Fee Section */}
+    <View style={styles.feeContainer}>
+      <View style={styles.feeCard}>
+        <Text style={styles.feeTitle}>Annual Fee</Text>
+        <Text style={styles.feeValue}>{totalFees.toLocaleString()} Ksh</Text>
+      </View>
+      <View style={styles.feeCard}>
+        <Text style={styles.feeTitle}>Amount Paid</Text>
+        <Text style={styles.feeValue}>{paidFees.toLocaleString()} Ksh</Text>
+      </View>
+      <View style={styles.feeCard}>
+        <Text style={styles.feeTitle}>Outstanding Fee</Text>
+        <Text style={styles.feeValue}>{outstandingFees.toLocaleString()} Ksh</Text>
+      </View>
+    </View>
+
+    {/* Pie Chart Section */}
+    <View style={styles.pieContainer}>
+      <ProgressChart
+        data={progressData}
+        width={width - 40}
+        height={150}
+        strokeWidth={16}
+        radius={32}
+        chartConfig={{
+          backgroundColor: '#FFFFFF', // White background for chart
+          backgroundGradientFrom: '#FFFFFF', // White gradient start
+          backgroundGradientTo: '#FFFFFF', // White gradient end
+          decimalPlaces: 1, // Show one decimal place
+          color: (opacity = 1) => `rgba(174, 245, 248, ${opacity})`, // Light cyan for the first data set
+          labelColor: (opacity = 1) => `rgba(0, 0, 0, ${opacity})`, // Black for labels
+          style: {
+            borderRadius: 16, // Rounded corners for the chart
+          },
+          propsForDots: {
+            r: '4', // Dot radius
+            strokeWidth: '2', // Dot stroke width
+            stroke: '#6a11cb', // Deep purple for dots
+          },
+        }}
+        hideLegend={false} // Show legend
+        style={styles.progressChart}
+      />
+    </View>
+
+    {/* Custom Legend */}
+    <View style={styles.legendContainer}>
+      <View style={styles.legendItem}>
+        <View style={[styles.legendColor, { backgroundColor: '#AEF5F8' }]} />
+        <Text style={styles.legendText}>Paid Fees</Text>
+      </View>
+      <View style={styles.legendItem}>
+        <View style={[styles.legendColor, { backgroundColor: '#6a11cb' }]} />
+        <Text style={styles.legendText}>Outstanding Fees</Text>
+      </View>
+    </View>
+  </View>
+</TouchableOpacity>
+
+        {/* Notifications Section */}
+        <TouchableOpacity onPress={() => navigation.navigate('Notifications')}>
+          <View style={styles.notificationCard}>
+            <Text style={styles.notificationCardText}>View Notifications</Text>
+            <Icon name="arrow-forward" size={20} color="#037f8c" />
+          </View>
+        </TouchableOpacity>
+      </ScrollView>
+    </LinearGradient>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  dashboardHeader: {
+    backgroundColor: 'transparent',
+    paddingVertical: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dashboardHeaderText: {
+    fontSize: 24,
+    fontWeight: 'bold',
+  },
+  themeToggleButton: {
+    position: 'absolute',
+    right: 16,
+    top: 16,
+  },
+  imageContainer: {
+    position: 'relative',
+    marginRight: 16,
+  },
+  profileImage: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    borderWidth: 2,
+    borderColor: '#ffffff',
+  },
+  placeholderImage: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    borderWidth: 2,
+    borderColor: '#ffffff',
+    backgroundColor: '#e0e0e0',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  profileInfo: {
+    flex: 2,
+  },
+  name: {
+    fontSize: 22,
+    color: '#ffffff',
+    fontWeight: 'bold',
+  },
+  grade: {
+    fontSize: 20,
+    color: '#ffffff',
+  },
+  adm: {
+    fontSize: 20,
+    color: '#ffffff',
+  },
+  websiteButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginHorizontal: 20,
+    marginVertical: 20,
+  },
+  websiteButtonText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#e0e0e0',
+    marginRight: 8,
+  },
+  attendanceContainer: {
+    paddingHorizontal: 20,
+    marginVertical: 20,
+  },
+  attendanceCard: {
+    backgroundColor: '#e0e0e0',
+    padding: 16,
+    borderRadius: 8,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  attendanceCardText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  attendancePercentageText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#037f8c',
+  },
+  performanceContainer: {
+    marginVertical: 20,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+  },
+  performanceCard: {
+    backgroundColor: '#49AAAE',
+    padding: 26,
+    borderRadius: 8,
+    width: '117%',
+  },
+  performanceText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 8,
+    textAlign: 'left',
+    marginLeft: 10,
+  },
+  barChart: {
+    marginVertical: 8,
+    borderRadius: 10,
+    backgroundColor: '#ffffff',
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  combinedCard: {
+    backgroundColor: '#FFFFFF', // White background for the card
+    borderRadius: 16, // Rounded corners
+    padding: 16, // Padding inside the card
+    marginHorizontal: 20, // Margin on the sides
+    marginVertical: 20, // Margin top and bottom
+    shadowColor: '#000', // Shadow for depth
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  feeContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 20, // Space between fee cards and pie chart
+  },
+  feeCard: {
+    backgroundColor: '#F5F5F5', // Light gray background for fee cards
+    padding: 12,
+    borderRadius: 8,
+    width: '30%', // Equal width for all fee cards
+    alignItems: 'center',
+  },
+  feeTitle: {
+    fontSize: 14,
+    color: '#666666', // Gray for secondary text
+  },
+  feeValue: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#037f8c', // Teal for emphasis
+  },
+  pieContainer: {
+    alignItems: 'center',
+    marginBottom: 10, // Space between pie chart and legend
+  },
+  progressChart: {
+    borderRadius: 16, // Rounded corners for the chart
+  },
+  legendContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    marginTop: 10, // Space between pie chart and legend
+  },
+  legendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 10, // Space between legend items
+  },
+  legendColor: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    marginRight: 5,
+  },
+  legendText: {
+    fontSize: 14,
+    color: '#000000', // Black text for legend
+  },
+  notificationCard: {
+    backgroundColor: '#e0e0e0',
+    padding: 16,
+    borderRadius: 8,
+    marginHorizontal: 20,
+    marginVertical: 20,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  notificationCardText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  errorText: {
+    fontSize: 16,
+    color: 'red',
+  },
+});
+
+export default Home;

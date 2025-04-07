@@ -19,19 +19,19 @@ export default function App() {
 
   return (
     <LinearGradient
-      colors={['#6a11cb', '#2575fc']} // Gradient colors
+      colors={['#AEF5F8', '#6a11cb']} // Gradient colors
       style={styles.container}
     >
       {/* Animated Logo */}
       <Animated.View entering={FadeIn.duration(1000)} exiting={FadeOut}>
         <Image
-          source={{ uri: 'https://mgtkcujpiitudmzldjsy.supabase.co/storage/v1/object/public/school360/logo/logo11.jpg' }}
+          source={{ uri: 'https://mgtkcujpiitudmzldjsy.supabase.co/storage/v1/object/public/school360/logo/logo12.png' }}
           style={styles.logo}
         />
       </Animated.View>
 
       {/* App Name */}
-      <Text style={styles.title}>Welcome to ElimuPlus</Text>
+      <Text style={styles.title}>Welcome to L-Track</Text>
 
       {/* Catchphrase */}
       <Text style={styles.subtitle}>Efficiency Meets Education.</Text>

@@ -36,12 +36,12 @@
       "expo-font",
       [
         "expo-image-picker",
-        {
-          "photosPermission": "Allow access to your photos to upload images.",
-          "cameraPermission": "Allow access to your camera to take photos."
-        }
-      ]
-    ],
+    {
+      "photosPermission": "The app accesses your photos to upload profile pictures.",
+      "cameraPermission": "The app accesses your camera to take profile pictures."
+    }
+  ]
+],
     "experiments": {
       "typedRoutes": true
     }

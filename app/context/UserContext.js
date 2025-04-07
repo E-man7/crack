@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { supabase } from '../supabase'; // Import your existing Supabase instance
+import { supabase } from '../supabase';
 
 const UserContext = createContext();
 
@@ -16,30 +16,30 @@ export const UserProvider = ({ children }) => {
   const refreshUser = async () => {
     setLoading(true);
     setError(null);
-  
+
     try {
       // Get authenticated user
       const { data: userSession, error: sessionError } = await supabase.auth.getUser();
       if (sessionError) throw sessionError;
-  
+
       console.log('Authenticated User:', userSession); // ✅ Log user session
-  
+
       const userId = userSession?.user?.id;
       if (!userId) throw new Error('User not authenticated');
-  
+
       // Fetch user details
       const { data: userData, error: userError } = await supabase
         .from('users')
         .select('*')
         .eq('id', userId)
-        .maybeSingle(); 
-  
+        .maybeSingle();
+
       if (userError) throw userError;
-      if (!userData) throw new Error('User not found in database'); 
-  
+      if (!userData) throw new Error('User not found in database');
+
       console.log('User Data:', userData); // ✅ Log fetched user data
       setUser(userData);
-  
+
       // Fetch teacher details using TSC number
       if (userData?.tsc_number) {
         const { data: teacherData, error: teacherError } = await supabase
@@ -47,9 +47,9 @@ export const UserProvider = ({ children }) => {
           .select('*')
           .eq('tsc_number', userData.tsc_number)
           .maybeSingle();
-  
+
         if (teacherError) throw teacherError;
-  
+
         console.log('Teacher Data:', teacherData); // ✅ Log fetched teacher data
         setTeacher(teacherData || null);
       } else {
@@ -59,10 +59,9 @@ export const UserProvider = ({ children }) => {
       console.error('Error fetching user or teacher data:', error);
       setError(error.message || 'Failed to load user data.');
     }
-  
+
     setLoading(false);
   };
-  
 
   return (
     <UserContext.Provider value={{ user, teacher, loading, error, refreshUser }}>

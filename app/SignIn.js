@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StatusBar, Alert } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StatusBar, Alert, Platform } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import { useNavigation } from '@react-navigation/native';
 import tw from 'twrnc';
-import supabase from './supabase'; // Ensure this path is correct
+import supabase from './supabase';
+import * as Device from 'expo-device';
 
 const SignIn = () => {
   const [selectedSchool, setSelectedSchool] = useState('');
@@ -15,6 +16,84 @@ const SignIn = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const navigation = useNavigation();
 
+  // Track device information and manage sessions
+  const trackDeviceAndSession = async (userId: string, refreshToken: string) => {
+    try {
+      const deviceId = Device.osBuildId || `${Device.modelId}-${Math.random().toString(36).substring(2, 10)}`;
+      const deviceName = Device.modelName || `${Device.brand} ${Device.model}`;
+      const deviceType = Device.osName || Platform.OS;
+
+      // Check if device already exists
+      const { data: existingDevice, error: fetchError } = await supabase
+        .from('user_devices')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('device_id', deviceId)
+        .single();
+
+      if (fetchError && fetchError.code !== 'PGRST116') { // Ignore "no rows" error
+        console.error('Error checking device:', fetchError);
+        return;
+      }
+
+      if (existingDevice) {
+        // Update existing device record
+        await supabase
+          .from('user_devices')
+          .update({
+            refresh_token: refreshToken,
+            last_login: new Date().toISOString(),
+            device_name: deviceName,
+            device_type: deviceType
+          })
+          .eq('id', existingDevice.id);
+      } else {
+        // Enforce device limit before adding new device
+        await enforceDeviceLimit(userId, async () => {
+          await supabase
+            .from('user_devices')
+            .insert({
+              user_id: userId,
+              device_id: deviceId,
+              device_name: deviceName,
+              device_type: deviceType,
+              refresh_token: refreshToken,
+            });
+        });
+      }
+    } catch (error) {
+      console.error('Device tracking error:', error);
+    }
+  };
+
+  // Enforce maximum device limit per user
+  const enforceDeviceLimit = async (userId: string, insertCallback: () => Promise<void>) => {
+    const { data: existingDevices, error } = await supabase
+      .from('user_devices')
+      .select('id, created_at')
+      .eq('user_id', userId);
+
+    if (error) {
+      console.error('Error fetching devices:', error);
+      return;
+    }
+
+    const MAX_DEVICES = 4;
+    if (existingDevices && existingDevices.length >= MAX_DEVICES) {
+      // Sort by oldest first
+      const sorted = [...existingDevices].sort((a, b) => 
+        new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+
+      // Delete the oldest device
+      await supabase
+        .from('user_devices')
+        .delete()
+        .eq('id', sorted[0].id);
+    }
+
+    await insertCallback();
+  };
+
   // Handle sign-in
   const handleSignIn = async () => {
     if (!selectedSchool || !password || !selectedRole) {
@@ -22,7 +101,6 @@ const SignIn = () => {
       return;
     }
 
-    // Validate admission number (parent) or TSC number (teacher)
     if (selectedRole === 'parent' && !adm_no) {
       Alert.alert('Error', 'Admission number is required');
       return;
@@ -48,34 +126,35 @@ const SignIn = () => {
         .eq('role', selectedRole)
         .maybeSingle();
 
-      if (userError) {
-        console.error('Error fetching user:', userError);
-        Alert.alert('Error', 'Error fetching user data. Try again.');
-        return;
-      }
-
+      if (userError) throw userError;
       if (!userData) {
         Alert.alert('Error', 'Invalid credentials. Check your details and try again.');
         return;
       }
 
       // Sign in using email and password
-      const { error: signInError } = await supabase.auth.signInWithPassword({
+      const { data: authData, error: signInError } = await supabase.auth.signInWithPassword({
         email: userData.email,
         password,
       });
 
-      if (signInError) {
-        throw signInError;
+      if (signInError) throw signInError;
+
+      // Track device after successful login
+      if (authData.session) {
+        await trackDeviceAndSession(
+          authData.user.id,
+          authData.session.refresh_token
+        );
       }
 
       Alert.alert('Success', 'Signed in successfully!');
 
       // Navigate based on role
       if (selectedRole === 'teacher') {
-        navigation.replace('TeacherTabs'); // Navigate to TeacherTabs for teachers
+        navigation.replace('TeacherTabs');
       } else {
-        navigation.replace('Home', { userRole: selectedRole }); // Navigate to Home for parents/students
+        navigation.replace('Home', { userRole: selectedRole });
       }
 
     } catch (error) {
@@ -147,6 +226,14 @@ const SignIn = () => {
         </TouchableOpacity>
       </View>
 
+      {/* Forgot Password Link */}
+      <TouchableOpacity 
+        style={tw`w-full items-end mb-4`}
+        onPress={() => navigation.navigate('ForgotPassword')}
+      >
+        <Text style={tw`text-blue-600 font-bold`}>Forgot Password?</Text>
+      </TouchableOpacity>
+
       {/* Sign In Button */}
       <TouchableOpacity
         style={[tw`w-full bg-blue-600 rounded-lg py-3 mb-4`, isSubmitting && tw`opacity-50`]}
@@ -157,6 +244,14 @@ const SignIn = () => {
           {isSubmitting ? 'Signing In...' : 'Sign In'}
         </Text>
       </TouchableOpacity>
+
+      {/* Sign Up Link */}
+      <View style={tw`flex-row`}>
+        <Text style={tw`text-gray-700`}>Don't have an account? </Text>
+        <TouchableOpacity onPress={() => navigation.navigate('SignUp')}>
+          <Text style={tw`text-blue-600 font-bold`}>SignUp</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 };
