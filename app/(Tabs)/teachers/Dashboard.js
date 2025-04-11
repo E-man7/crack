@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, SafeAreaView, Image, FlatList, TouchableOpacity, Modal, Button, Alert, ActivityIndicator, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, SafeAreaView, Image, FlatList, TouchableOpacity, Modal, Button, Alert, ActivityIndicator } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { BarChart } from 'react-native-chart-kit';
+import { LineChart } from 'react-native-chart-kit';
 import supabase from '../../supabase';
 import ImageHandler from '../../ImageHandler';
 import { Picker } from '@react-native-picker/picker';
@@ -322,16 +322,16 @@ const ProfileScreen = () => {
 
   const renderSubjectAnalysis = () => {
     if (!teacher?.class_teacher) return null;
-
+  
     const chartData = {
       labels: subjectPerformance.map(item => item.period),
       datasets: [{
         data: subjectPerformance.map(item => item.averageScore),
-        color: (opacity = 1) => `rgba(128, 128, 128, ${opacity})`, // Changed to grey
+        color: (opacity = 1) => `rgba(128, 128, 128, ${opacity})`,
         strokeWidth: 2
       }]
     };
-
+  
     return (
       <View style={styles.analysisSection}>
         <Text style={styles.header}>Subject Performance Analysis</Text>
@@ -349,14 +349,14 @@ const ProfileScreen = () => {
             ))}
           </Picker>
         </View>
-
+  
         {analysisLoading ? (
           <ActivityIndicator size="small" color="#FFF" />
         ) : subjectPerformance.length > 0 ? (
           <View style={styles.chartContainer}>
-            <BarChart
+            <LineChart
               data={chartData}
-              width={350}
+              width={450}
               height={220}
               yAxisLabel=""
               yAxisSuffix="%"
@@ -376,6 +376,7 @@ const ProfileScreen = () => {
                   stroke: '#ffa726'
                 }
               }}
+              bezier
               style={{
                 marginVertical: 8,
                 borderRadius: 16
@@ -394,72 +395,77 @@ const ProfileScreen = () => {
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView 
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Profile Section */}
-        <View style={styles.profileSection}>  
-          <Text style={styles.header}>Profile</Text>
-          {loading ? (
-            <ActivityIndicator size="small" color="#FFF" />
-          ) : (
-            <View style={styles.profileContent}>
-              <TouchableOpacity onPress={() => {
-                fetchAvatars();
-                setShowImagePickerModal(true);
-              }}>
-                <View style={styles.imageContainer}>
-                  {uploading ? (
-                    <View style={[styles.profileImage, styles.uploadingOverlay]}>
-                      <ActivityIndicator size="large" color="#FFF" />
+      {/* Profile Section (non-scrollable) */}
+      <View style={styles.profileSection}>  
+        <Text style={styles.header}>Profile</Text>
+        {loading ? (
+          <ActivityIndicator size="small" color="#FFF" />
+        ) : (
+          <View style={styles.profileContent}>
+            <TouchableOpacity onPress={() => {
+              fetchAvatars();
+              setShowImagePickerModal(true);
+            }}>
+              <View style={styles.imageContainer}>
+                {uploading ? (
+                  <View style={[styles.profileImage, styles.uploadingOverlay]}>
+                    <ActivityIndicator size="large" color="#FFF" />
+                  </View>
+                ) : (
+                  <Image
+                    source={{ 
+                      uri: avatarUrl || 'https://via.placeholder.com/150',
+                      cache: 'reload'
+                    }}
+                    style={styles.profileImage}
+                    onError={() => setAvatarUrl(null)}
+                  />  
+                )}
+              </View>
+            </TouchableOpacity>
+            <View style={styles.infoContainer}>
+              {renderProfileInfo()}
+            </View>
+          </View>
+        )}
+      </View>
+
+      {/* Scrollable content */}
+      <FlatList
+        data={[{}]} // Dummy data for single item
+        renderItem={() => (
+          <>
+            {userType === 'teacher' && (
+              <>
+                <View style={styles.scheduleSection}>
+                  <Text style={styles.header}>Lesson Schedule</Text>
+                  {scheduleLoading ? (
+                    <ActivityIndicator size="small" color="#FFF" />
+                  ) : scheduleError ? (
+                    <Text style={styles.errorText}>Error loading schedule: {scheduleError}</Text>
+                  ) : lessonSchedule.length > 0 ? (
+                    <View style={styles.scheduleList}>
+                      {lessonSchedule.map((item) => (
+                        <View key={`${item.day}-${item.start_time}-${item.subject}`}>
+                          {renderLessonItem({ item })}
+                        </View>
+                      ))}
                     </View>
                   ) : (
-                    <Image
-                      source={{ 
-                        uri: avatarUrl || 'https://via.placeholder.com/150',
-                        cache: 'reload'
-                      }}
-                      style={styles.profileImage}
-                      onError={() => setAvatarUrl(null)}
-                    />  
+                    <Text style={styles.value}>No lesson schedule found</Text>
                   )}
                 </View>
-              </TouchableOpacity>
-              <View style={styles.infoContainer}>
-                {renderProfileInfo()}
-              </View>
-            </View>
-          )}
-        </View>
-  
-        {userType === 'teacher' && (
-          <>
-            <View style={styles.scheduleSection}>
-              <Text style={styles.header}>Lesson Schedule</Text>
-              {scheduleLoading ? (
-                <ActivityIndicator size="small" color="#FFF" />
-              ) : scheduleError ? (
-                <Text style={styles.errorText}>Error loading schedule: {scheduleError}</Text>
-              ) : lessonSchedule.length > 0 ? (
-                <FlatList
-                  data={lessonSchedule}
-                  renderItem={renderLessonItem}
-                  keyExtractor={(item) => `${item.day}-${item.start_time}-${item.subject}`}
-                  contentContainerStyle={styles.scheduleList}
-                />
-              ) : (
-                <Text style={styles.value}>No lesson schedule found</Text>
-              )}
-            </View>
-  
-            {renderSubjectAnalysis()}
+
+                {renderSubjectAnalysis()}
+              </>
+            )}
+            {renderNotificationCard()}
           </>
         )}
-  
-        {renderNotificationCard()}
-      </ScrollView>
-  
+        keyExtractor={() => 'main-content'}
+        contentContainerStyle={styles.scrollContent}
+      />
+
       {/* Image Picker Modal */}
       <Modal
         visible={showImagePickerModal}
@@ -512,7 +518,7 @@ const ProfileScreen = () => {
     </SafeAreaView>
   );
 };
-  
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,

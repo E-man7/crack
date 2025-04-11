@@ -25,16 +25,24 @@ interface Assignment {
   status: string;
   class: string | string[];
   points?: number;
-  files: AssignmentFile[];
+  attachments?: string[];
+  category?: string;
+  submission_type?: string;
+  subjects?: string[];
+  content?: string;
+  created_at: string;
+  updated_at: string;
 }
 
 interface AssignmentFile {
   id: string;
   file_url: string;
-  public_url: string;
+  public_url: string | null;
   file_name: string;
-  file_type?: string;
-  file_size?: number;
+  file_type: string | null;
+  file_size: number | null;
+  uploaded_by: string | null;
+  teacher_comments: string | null;
 }
 
 const AssignmentScreen = () => {
@@ -44,6 +52,8 @@ const AssignmentScreen = () => {
   const [userClass, setUserClass] = useState<string | null>(null);
   const [selectedAssignment, setSelectedAssignment] = useState<Assignment | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
+  const [assignmentFiles, setAssignmentFiles] = useState<Record<string, AssignmentFile[]>>({});
+  const [fileLoading, setFileLoading] = useState<string | null>(null);
 
   const fetchUserClass = async (): Promise<string | null> => {
     try {
@@ -63,6 +73,22 @@ const AssignmentScreen = () => {
     } catch (error) {
       console.error('Error fetching user class:', error);
       return null;
+    }
+  };
+
+  const fetchAssignmentFiles = async (assignmentId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('assignment_files')
+        .select('*')
+        .eq('assignment_id', assignmentId);
+
+      if (error) throw error;
+
+      return data || [];
+    } catch (error) {
+      console.error('Error fetching assignment files:', error);
+      return [];
     }
   };
 
@@ -92,23 +118,15 @@ const AssignmentScreen = () => {
 
       if (error) throw error;
 
-      const assignmentsWithFiles = await Promise.all(
-        (data || []).map(async (assignment: any) => {
-          const { data: files, error: filesError } = await supabase
-            .from('assignment_files')
-            .select('*')
-            .eq('assignment_id', assignment.id);
+      setAssignments(data || []);
 
-          if (filesError) throw filesError;
-
-          return {
-            ...assignment,
-            files: files || [],
-          };
-        })
-      );
-
-      setAssignments(assignmentsWithFiles);
+      // Fetch files for each assignment
+      const filesMap: Record<string, AssignmentFile[]> = {};
+      for (const assignment of data || []) {
+        const files = await fetchAssignmentFiles(assignment.id);
+        filesMap[assignment.id] = files;
+      }
+      setAssignmentFiles(filesMap);
     } catch (error) {
       console.error('Error fetching assignments:', error);
     } finally {
@@ -131,10 +149,53 @@ const AssignmentScreen = () => {
     setModalVisible(true);
   };
 
-  const handleFilePress = (file: AssignmentFile) => {
-    Linking.openURL(file.public_url || file.file_url).catch(err => 
-      console.error('Failed to open file:', err)
-    );
+  const getFileIcon = (fileType: string | null) => {
+    if (!fileType) return 'insert-drive-file';
+    
+    const lowerType = fileType.toLowerCase();
+    if (lowerType.includes('pdf')) return 'picture-as-pdf';
+    if (lowerType.includes('image')) return 'image';
+    if (lowerType.includes('word') || lowerType.includes('msword') || lowerType.includes('officedocument.word')) return 'description';
+    if (lowerType.includes('excel') || lowerType.includes('spreadsheet')) return 'grid-on';
+    if (lowerType.includes('powerpoint') || lowerType.includes('presentation')) return 'slideshow';
+    if (lowerType.includes('zip') || lowerType.includes('compressed')) return 'folder-zip';
+    return 'insert-drive-file';
+  };
+
+  const handleAttachmentPress = async (file: AssignmentFile) => {
+    try {
+      setFileLoading(file.id);
+      
+      // First try to open the public URL if available
+      if (file.public_url) {
+        const canOpen = await Linking.canOpenURL(file.public_url);
+        if (canOpen) {
+          await Linking.openURL(file.public_url);
+          return;
+        }
+      }
+      
+      // If no public URL or can't open it, try to download and open the file
+      const { data, error } = await supabase.storage
+        .from('assignments')
+        .createSignedUrl(file.file_url, 3600);
+
+      if (error) throw error;
+      if (data?.signedUrl) {
+        const canOpen = await Linking.canOpenURL(data.signedUrl);
+        if (canOpen) {
+          await Linking.openURL(data.signedUrl);
+        } else {
+          // Fallback: Download the file
+          alert(`Cannot open file directly. Please download ${file.file_name}`);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to open attachment:', error);
+      alert(`Failed to open file: ${file.file_name}. Please try again later.`);
+    } finally {
+      setFileLoading(null);
+    }
   };
 
   const getStatusStyle = (status: string) => {
@@ -146,6 +207,27 @@ const AssignmentScreen = () => {
       default:
         return styles.statusNotStarted;
     }
+  };
+
+  const renderDetailItem = (label: string, value: string | number | string[] | undefined) => {
+    if (!value) return null;
+    
+    return (
+      <View style={styles.detailItem}>
+        <Text style={styles.detailLabel}>{label}:</Text>
+        {Array.isArray(value) ? (
+          <View style={styles.arrayContainer}>
+            {value.map((item, index) => (
+              <Text key={index} style={styles.detailValue}>
+                • {item}
+              </Text>
+            ))}
+          </View>
+        ) : (
+          <Text style={styles.detailValue}>{value}</Text>
+        )}
+      </View>
+    );
   };
 
   if (loading) {
@@ -182,11 +264,10 @@ const AssignmentScreen = () => {
               <Text style={styles.assignmentStatus}>
                 Status: <Text style={getStatusStyle(item.status)}>{item.status}</Text>
               </Text>
-              {item.files.length > 0 && (
-                <View style={styles.filesIndicator}>
-                  <Icon name="attachment" size={16} color="#037f8c" />
-                  <Text style={styles.filesCount}>{item.files.length}</Text>
-                </View>
+              {item.category && (
+                <Text style={styles.assignmentCategory}>
+                  {item.category}
+                </Text>
               )}
             </View>
           </TouchableOpacity>
@@ -219,42 +300,82 @@ const AssignmentScreen = () => {
             </Pressable>
 
             <ScrollView>
-              <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>{selectedAssignment?.name}</Text>
-                <Text style={styles.modalDeadline}>
-                  Due: {selectedAssignment && format(new Date(selectedAssignment.deadline), 'MMMM dd, yyyy')}
-                </Text>
-              </View>
+              {selectedAssignment && (
+                <>
+                  <View style={styles.modalHeader}>
+                    <Text style={styles.modalTitle}>{selectedAssignment.name}</Text>
+                    <Text style={styles.modalDeadline}>
+                      Due: {format(new Date(selectedAssignment.deadline), 'MMMM dd, yyyy')}
+                    </Text>
+                  </View>
 
-              {selectedAssignment?.description && (
-                <View style={styles.modalSection}>
-                  <Text style={styles.modalSectionTitle}>Description</Text>
-                  <Text style={styles.modalDescription}>{selectedAssignment.description}</Text>
-                </View>
-              )}
+                  {renderDetailItem('Status', selectedAssignment.status)}
+                  {renderDetailItem('Description', selectedAssignment.description)}
+                  {renderDetailItem('Content', selectedAssignment.content)}
+                  {renderDetailItem('Points', selectedAssignment.points)}
+                  {renderDetailItem('Category', selectedAssignment.category)}
+                  {renderDetailItem('Submission Type', selectedAssignment.submission_type)}
+                  {renderDetailItem('Class', selectedAssignment.class)}
+                  {renderDetailItem('Subjects', selectedAssignment.subjects)}
+                  {renderDetailItem('Created At', format(new Date(selectedAssignment.created_at), 'MMMM dd, yyyy HH:mm'))}
+                  {renderDetailItem('Updated At', format(new Date(selectedAssignment.updated_at), 'MMMM dd, yyyy HH:mm'))}
+                  {assignmentFiles[selectedAssignment.id]?.length > 0 && (
+                    <View style={styles.attachmentsSection}>
+                      <Text style={styles.sectionTitle}>Attachments</Text>
+                      {assignmentFiles[selectedAssignment.id].map((file) => (
+                        <TouchableOpacity
+                          key={file.id}
+                          style={styles.attachmentItem}
+                          onPress={() => handleAttachmentPress(file)}
+                          disabled={fileLoading === file.id}
+                        >
+                          <Icon 
+                            name={getFileIcon(file.file_type)} 
+                            size={20} 
+                            color="#037f8c" 
+                          />
+                          <View style={styles.attachmentInfo}>
+                            <Text style={styles.attachmentText} numberOfLines={1}>
+                              {file.file_name}
+                            </Text>
+                            {file.file_size && (
+                              <Text style={styles.fileSize}>
+                                {(file.file_size / 1024).toFixed(1)} KB
+                              </Text>
+                            )}
+                          </View>
+                          {fileLoading === file.id ? (
+                            <ActivityIndicator size="small" color="#037f8c" />
+                          ) : (
+                            <Icon name="download" size={20} color="#037f8c" />
+                          )}
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
 
-              {selectedAssignment?.points && (
-                <View style={styles.modalSection}>
-                  <Text style={styles.modalSectionTitle}>Points</Text>
-                  <Text style={styles.modalPoints}>{selectedAssignment.points}</Text>
-                </View>
-              )}
-
-              {selectedAssignment?.files.length > 0 && (
-                <View style={styles.modalSection}>
-                  <Text style={styles.modalSectionTitle}>Attachments ({selectedAssignment.files.length})</Text>
-                  {selectedAssignment.files.map((file) => (
-                    <TouchableOpacity
-                      key={file.id}
-                      style={styles.modalFileItem}
-                      onPress={() => handleFilePress(file)}
-                    >
-                      <Icon name="insert-drive-file" size={24} color="#037f8c" />
-                      <Text style={styles.modalFileName}>{file.file_name}</Text>
-                      <Icon name="download" size={24} color="#037f8c" />
-                    </TouchableOpacity>
-                  ))}
-                </View>
+                  {/* Fallback for old attachments array if needed */}
+                  {selectedAssignment.attachments && selectedAssignment.attachments.length > 0 && (
+                    <View style={styles.attachmentsSection}>
+                      <Text style={styles.sectionTitle}>Legacy Attachments</Text>
+                      {selectedAssignment.attachments.map((url, index) => (
+                        <TouchableOpacity
+                          key={index}
+                          style={styles.attachmentItem}
+                          onPress={() => Linking.openURL(url).catch(err => 
+                            console.error('Failed to open attachment:', err)
+                          )}
+                        >
+                          <Icon name="insert-drive-file" size={20} color="#037f8c" />
+                          <Text style={styles.attachmentText} numberOfLines={1}>
+                            Attachment {index + 1}
+                          </Text>
+                          <Icon name="download" size={20} color="#037f8c" />
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
+                </>
               )}
             </ScrollView>
           </View>
@@ -330,6 +451,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#444',
   },
+  assignmentCategory: {
+    fontSize: 14,
+    color: '#037f8c',
+    fontWeight: 'bold',
+  },
   statusSubmitted: {
     color: '#4CAF50',
     fontWeight: 'bold',
@@ -341,15 +467,6 @@ const styles = StyleSheet.create({
   statusNotStarted: {
     color: '#F44336',
     fontWeight: 'bold',
-  },
-  filesIndicator: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  filesCount: {
-    fontSize: 14,
-    color: '#037f8c',
-    marginLeft: 4,
   },
   modalContainer: {
     flex: 1,
@@ -392,39 +509,50 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#666',
   },
-  modalSection: {
-    marginBottom: 20,
+  detailItem: {
+    marginBottom: 15,
   },
-  modalSectionTitle: {
+  detailLabel: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#037f8c',
+    marginBottom: 3,
+  },
+  detailValue: {
+    fontSize: 16,
+    color: '#333',
+  },
+  arrayContainer: {
+    marginTop: 5,
+  },
+  attachmentsSection: {
+    marginTop: 15,
+  },
+  sectionTitle: {
     fontSize: 18,
     fontWeight: 'bold',
     color: '#037f8c',
-    marginBottom: 8,
+    marginBottom: 10,
   },
-  modalDescription: {
-    fontSize: 16,
-    lineHeight: 24,
-    color: '#333',
-  },
-  modalPoints: {
-    fontSize: 16,
-    color: '#333',
-  },
-  modalFileItem: {
+  attachmentItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 8,
-    borderWidth: 1,
-    borderColor: '#eee',
-    borderRadius: 4,
+    padding: 10,
+    backgroundColor: '#f9f9f9',
+    borderRadius: 5,
     marginBottom: 8,
   },
-  modalFileName: {
+  attachmentInfo: {
     flex: 1,
-    marginLeft: 12,
-    fontSize: 16,
+    marginLeft: 10,
+    marginRight: 10,
+  },
+  attachmentText: {
     color: '#333',
+  },
+  fileSize: {
+    fontSize: 12,
+    color: '#666',
   },
 });
 
