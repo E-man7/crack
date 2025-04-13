@@ -3,18 +3,39 @@
     "name": "EXELS",
     "slug": "EXELS",
     "version": "1.0.0",
-    "scheme": "School360",
+    "scheme": "school360",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
-    "ios": {
-      "supportsTablet": true
-    },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
+      },
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "data": [
+            {
+              "scheme": "school360",
+              "host": "reset-password"
+            }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ]
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.yourcompany.EXELS",
+      "scheme": "school360",
+      "infoPlist": {
+        "CFBundleURLTypes": [
+          {
+            "CFBundleURLSchemes": ["school360"]
+          }
+        ]
       }
     },
     "web": {
@@ -36,12 +57,12 @@
       "expo-font",
       [
         "expo-image-picker",
-    {
-      "photosPermission": "The app accesses your photos to upload profile pictures.",
-      "cameraPermission": "The app accesses your camera to take profile pictures."
-    }
-  ]
-],
+        {
+          "photosPermission": "The app accesses your photos to upload profile pictures.",
+          "cameraPermission": "The app accesses your camera to take profile pictures."
+        }
+      ]
+    ],
     "experiments": {
       "typedRoutes": true
     }

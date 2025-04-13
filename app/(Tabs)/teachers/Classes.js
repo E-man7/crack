@@ -1,10 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import {
   View, Text, StyleSheet, SafeAreaView, FlatList, TouchableOpacity, ActivityIndicator,
-  ScrollView, TextInput, Dimensions, Image
+  ScrollView, TextInput, Dimensions, Image, Modal, Alert
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import { MaterialIcons } from '@expo/vector-icons';
+import DateTimePicker from '@react-native-community/datetimepicker';
+import * as FileSystem from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
 import supabase from '../../supabase';
 
 const { width } = Dimensions.get('window');
@@ -25,35 +28,108 @@ const ClassesTab = () => {
   const [selectedTerm, setSelectedTerm] = useState('Term 1');
   const [isLoading, setIsLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [teacherClass, setTeacherClass] = useState(null);
+  const [showAttendanceModal, setShowAttendanceModal] = useState(false);
+  const [attendanceDate, setAttendanceDate] = useState(new Date());
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [attendanceRecords, setAttendanceRecords] = useState({});
+  const [absentReasons, setAbsentReasons] = useState({});
+  const [isMarkingAttendance, setIsMarkingAttendance] = useState(false);
+  const [attendanceSession, setAttendanceSession] = useState('Morning');
 
   useEffect(() => {
     fetchClasses();
+    fetchTeacherClass();
   }, []);
+
+  const fetchTeacherClass = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data, error } = await supabase
+        .from('teachers')
+        .select('class_teacher')
+        .eq('tsc_number', user.user_metadata?.tsc_number)
+        .single();
+
+      if (error) throw error;
+      if (data.class_teacher) {
+        setTeacherClass(data.class_teacher);
+        setSelectedClass(data.class_teacher);
+        fetchStudentsByClass(data.class_teacher);
+      }
+    } catch (error) {
+      console.error('Error fetching teacher class:', error);
+    }
+  };
 
   const fetchClasses = async () => {
     setIsLoading(true);
-    const { data, error } = await supabase
-      .from('students')
-      .select('class')
-      .neq('class', null);
+    try {
+      const { data, error } = await supabase
+        .from('students')
+        .select('class')
+        .neq('class', null);
 
-    if (error) console.error('Error fetching classes:', error);
-    else setClasses([...new Set(data.map(item => item.class))]);
+      if (error) throw error;
 
-    setIsLoading(false);
+      // Get unique classes
+      const uniqueClasses = [...new Set(data.map(item => item.class))];
+      
+      // If teacher is a class teacher, move their class to the front
+      if (teacherClass) {
+        const teacherClassIndex = uniqueClasses.indexOf(teacherClass);
+        if (teacherClassIndex > -1) {
+          uniqueClasses.splice(teacherClassIndex, 1);
+          uniqueClasses.unshift(teacherClass);
+        }
+      }
+
+      setClasses(uniqueClasses);
+    } catch (error) {
+      console.error('Error fetching classes:', error);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const fetchStudentsByClass = async (className) => {
     setIsLoading(true);
-    const { data, error } = await supabase
-      .from('students')
-      .select('*')
-      .eq('class', className);
+    try {
+      const { data, error } = await supabase
+        .from('students')
+        .select('*')
+        .eq('class', className)
+        .order('name', { ascending: true });
 
-    if (error) console.error('Error fetching students:', error);
-    else setStudents(data);
+      if (error) throw error;
 
-    setIsLoading(false);
+      // Randomize the order of students for display
+      const randomizedStudents = [...data].sort(() => Math.random() - 0.5);
+      setStudents(randomizedStudents);
+
+      // Initialize attendance records
+      const initialRecords = {};
+      const initialReasons = {};
+      randomizedStudents.forEach(student => {
+        initialRecords[student.adm_no] = 'present'; // default to present
+        initialReasons[student.adm_no] = '';
+      });
+      setAttendanceRecords(initialRecords);
+      setAbsentReasons(initialReasons);
+
+      // Select a random student by default
+      if (randomizedStudents.length > 0) {
+        const randomIndex = Math.floor(Math.random() * randomizedStudents.length);
+        setSelectedStudent(randomizedStudents[randomIndex]);
+        fetchStudentDetails(randomizedStudents[randomIndex].adm_no);
+      }
+    } catch (error) {
+      console.error('Error fetching students:', error);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const fetchSubjectNames = async (subjectIds) => {
@@ -98,10 +174,15 @@ const ClassesTab = () => {
         .eq('adm_no', admNo)
         .eq('period', selectedTerm);
 
-      const { data: feesData } = await supabase
-        .from('fees')
-        .select('*')
-        .eq('adm_no', admNo);
+      // Only fetch fees if the teacher is the class teacher
+      let feesData = [];
+      if (teacherClass === selectedClass) {
+        const { data: fees } = await supabase
+          .from('fees')
+          .select('*')
+          .eq('adm_no', admNo);
+        feesData = fees || [];
+      }
 
       const subjectIds = [...new Set([...scoresData.map(s => s.subject_id), ...gradesData.map(g => g.subject_id)])];
       const subjectNames = await fetchSubjectNames(subjectIds);
@@ -111,7 +192,7 @@ const ClassesTab = () => {
         scores: scoresData.map(s => ({ ...s, subject_name: subjectNames[s.subject_id] || 'Unknown' })) || [],
         grades: gradesData.map(g => ({ ...g, subject_name: subjectNames[g.subject_id] || 'Unknown' })) || [],
         reports: reportsData || [],
-        fees: feesData || []
+        fees: feesData
       });
     } catch (error) {
       console.error('Error fetching student details:', error);
@@ -174,10 +255,124 @@ const ClassesTab = () => {
     );
   };
 
+  const handleDateChange = (event, selectedDate) => {
+    setShowDatePicker(false);
+    if (selectedDate) {
+      setAttendanceDate(selectedDate);
+    }
+  };
+
+  const handleAttendanceChange = (admNo, status) => {
+    setAttendanceRecords(prev => ({
+      ...prev,
+      [admNo]: status
+    }));
+  };
+
+  const handleReasonChange = (admNo, reason) => {
+    setAbsentReasons(prev => ({
+      ...prev,
+      [admNo]: reason
+    }));
+  };
+
+  const submitAttendance = async () => {
+    setIsMarkingAttendance(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('User not authenticated');
+  
+      const dateStr = attendanceDate.toISOString().split('T')[0];
+      const month = attendanceDate.toLocaleString('default', { month: 'long' });
+      const year = attendanceDate.getFullYear();
+  
+      const recordsToInsert = students.map(student => ({
+        adm_no: student.adm_no,
+        date: dateStr,
+        status: attendanceRecords[student.adm_no],
+        reason: attendanceRecords[student.adm_no] === 'absent' ? absentReasons[student.adm_no] : null,
+        month,
+        year,
+        term: selectedTerm,
+        teacher_tsc_number: user.user_metadata?.tsc_number,
+        attendance: attendanceRecords[student.adm_no] === 'present' ? 1 : 0,
+        total_days: 1,
+        session: attendanceSession,
+        notes: '',
+        modified_at: new Date().toISOString()
+      }));
+  
+      const { error: deleteError } = await supabase
+        .from('attendance')
+        .delete()
+        .eq('date', dateStr)
+        .in('adm_no', students.map(s => s.adm_no));
+  
+      if (deleteError) throw deleteError;
+  
+      const { error } = await supabase
+        .from('attendance')
+        .insert(recordsToInsert);
+  
+      if (error) throw error;
+  
+      Alert.alert('Success', 'Attendance marked successfully');
+      setShowAttendanceModal(false);
+      if (selectedStudent) {
+        fetchStudentDetails(selectedStudent.adm_no);
+      }
+    } catch (error) {
+      console.error('Error submitting attendance:', error);
+      Alert.alert('Error', error.message || 'Failed to mark attendance');
+    } finally {
+      setIsMarkingAttendance(false);
+    }
+  };
+
+  const downloadAttendanceSheet = async () => {
+    try {
+      if (!selectedClass || students.length === 0) {
+        Alert.alert('Error', 'No students data available to download');
+        return;
+      }
+
+      const dateStr = attendanceDate.toISOString().split('T')[0];
+      const formattedDate = attendanceDate.toLocaleDateString();
+      
+      // Create CSV content with date included
+      let csvContent = 'Admission No,Name,Status,Date,Class,Session\n';
+      
+      students.forEach(student => {
+        const status = attendanceRecords[student.adm_no] === 'late' ? 'present' : 
+                       attendanceRecords[student.adm_no] === 'excused' ? 'absent' : 
+                       attendanceRecords[student.adm_no];
+        csvContent += `${student.adm_no},${student.name},${status},${formattedDate},${selectedClass},${attendanceSession}\n`;
+      });
+
+      // Create file with date in filename
+      const fileUri = FileSystem.documentDirectory + `attendance_${selectedClass}_${dateStr}.csv`;
+      await FileSystem.writeAsStringAsync(fileUri, csvContent, {
+        encoding: FileSystem.EncodingType.UTF8,
+      });
+
+      await Sharing.shareAsync(fileUri, {
+        mimeType: 'text/csv',
+        dialogTitle: `Attendance Sheet - ${selectedClass} - ${formattedDate}`,
+        UTI: 'public.comma-separated-values-text',
+      });
+    } catch (error) {
+      console.error('Error downloading attendance sheet:', error);
+      Alert.alert('Error', 'Failed to download attendance sheet');
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>Class Management</Text>
+        {teacherClass && (
+          <Text style={styles.subtitle}>Class Teacher: {teacherClass}</Text>
+        )}
       </View>
 
       {isLoading ? (
@@ -196,7 +391,8 @@ const ClassesTab = () => {
               <TouchableOpacity
                 style={[
                   styles.classItem,
-                  selectedClass === item && styles.selectedItem
+                  selectedClass === item && styles.selectedItem,
+                  teacherClass === item && styles.teacherClassItem
                 ]}
                 onPress={() => {
                   setSelectedClass(item);
@@ -204,8 +400,17 @@ const ClassesTab = () => {
                   setSelectedStudent(null);
                 }}
               >
-                <MaterialIcons name="class" size={24} color="#5D3FD3" />
-                <Text style={styles.classText}>{item}</Text>
+                <MaterialIcons 
+                  name="class" 
+                  size={24} 
+                  color={teacherClass === item ? '#fff' : '#5D3FD3'} 
+                />
+                <Text style={[
+                  styles.classText,
+                  teacherClass === item && styles.teacherClassText
+                ]}>
+                  {item}
+                </Text>
               </TouchableOpacity>
             )}
             contentContainerStyle={styles.horizontalList}
@@ -215,7 +420,27 @@ const ClassesTab = () => {
 
       {selectedClass && (
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Students in {selectedClass}</Text>
+          <View style={styles.classHeader}>
+            <Text style={styles.sectionTitle}>Students in {selectedClass}</Text>
+            {teacherClass === selectedClass && (
+              <View style={styles.attendanceButtonsContainer}>
+                <TouchableOpacity
+                  style={[styles.markAttendanceButton, { marginRight: 8 }]}
+                  onPress={() => setShowAttendanceModal(true)}
+                >
+                  <MaterialIcons name="event-available" size={20} color="#fff" />
+                  <Text style={styles.markAttendanceButtonText}>Mark Attendance</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.markAttendanceButton, { backgroundColor: '#4CAF50' }]}
+                  onPress={downloadAttendanceSheet}
+                >
+                  <MaterialIcons name="file-download" size={20} color="#fff" />
+                  <Text style={styles.markAttendanceButtonText}>Download Sheet</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
           <View style={styles.searchContainer}>
             <MaterialIcons name="search" size={20} color="#888" style={styles.searchIcon} />
             <TextInput
@@ -283,20 +508,22 @@ const ClassesTab = () => {
                 Progress
               </Text>
             </TouchableOpacity>
-            <TouchableOpacity
-              style={[
-                styles.tabButton,
-                displayOption === 'fees' && styles.activeTab
-              ]}
-              onPress={() => setDisplayOption('fees')}
-            >
-              <Text style={[
-                styles.tabText,
-                displayOption === 'fees' && styles.activeTabText
-              ]}>
-                Fees
-              </Text>
-            </TouchableOpacity>
+            {teacherClass === selectedClass && (
+              <TouchableOpacity
+                style={[
+                  styles.tabButton,
+                  displayOption === 'fees' && styles.activeTab
+                ]}
+                onPress={() => setDisplayOption('fees')}
+              >
+                <Text style={[
+                  styles.tabText,
+                  displayOption === 'fees' && styles.activeTabText
+                ]}>
+                  Fees
+                </Text>
+              </TouchableOpacity>
+            )}
           </View>
 
           {displayOption === 'progress' && (
@@ -323,22 +550,32 @@ const ClassesTab = () => {
                   <Text style={styles.cardTitle}>Attendance</Text>
                 </View>
                 {studentDetails.attendance.length > 0 ? (
-                  studentDetails.attendance.map((att, index) => (
-                    <View key={index} style={styles.attendanceItem}>
-                      <Text style={styles.attendanceMonth}>{att.month}</Text>
-                      <View style={styles.progressContainer}>
-                        <View style={styles.progressBar}>
-                          <View style={[
-                            styles.progressFill,
-                            { width: `${(att.attendance / att.total_days) * 100}%` }
-                          ]} />
-                        </View>
-                        <Text style={styles.attendanceText}>
-                          {att.attendance}/{att.total_days} days
-                        </Text>
-                      </View>
+                  <View style={styles.attendanceTable}>
+                    <View style={styles.attendanceTableHeader}>
+                      <Text style={styles.attendanceTableHeaderText}>Date</Text>
+                      <Text style={styles.attendanceTableHeaderText}>Status</Text>
+                      <Text style={styles.attendanceTableHeaderText}>Session</Text>
                     </View>
-                  ))
+                    {studentDetails.attendance.map((att, index) => (
+                      <View key={index} style={styles.attendanceTableRow}>
+                        <Text style={styles.attendanceTableCell}>
+                          {new Date(att.date).toLocaleDateString()}
+                        </Text>
+                        <View style={[
+                          styles.statusBadge,
+                          { 
+                            backgroundColor: 
+                              att.status === 'present' ? '#4CAF50' : 
+                              att.status === 'absent' ? '#F44336' :
+                              att.status === 'late' ? '#FFC107' : '#9C27B0'
+                          }
+                        ]}>
+                          <Text style={styles.statusText}>{att.status}</Text>
+                        </View>
+                        <Text style={styles.attendanceTableCell}>{att.session}</Text>
+                      </View>
+                    ))}
+                  </View>
                 ) : (
                   <Text style={styles.noDataText}>No attendance records found</Text>
                 )}
@@ -397,7 +634,7 @@ const ClassesTab = () => {
             </>
           )}
 
-          {displayOption === 'fees' && (
+          {displayOption === 'fees' && teacherClass === selectedClass && (
             <View style={styles.card}>
               <View style={styles.cardHeader}>
                 <MaterialIcons name="attach-money" size={20} color="#5D3FD3" />
@@ -446,6 +683,161 @@ const ClassesTab = () => {
           )}
         </ScrollView>
       )}
+
+      {/* Attendance Modal */}
+      <Modal
+        visible={showAttendanceModal}
+        animationType="slide"
+        transparent={false}
+        onRequestClose={() => setShowAttendanceModal(false)}
+      >
+        <SafeAreaView style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Mark Attendance</Text>
+            <TouchableOpacity onPress={() => setShowAttendanceModal(false)}>
+              <MaterialIcons name="close" size={24} color="#333" />
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.datePickerContainer}>
+            <Text style={styles.dateLabel}>Date:</Text>
+            <TouchableOpacity 
+              style={styles.dateInput}
+              onPress={() => setShowDatePicker(true)}
+            >
+              <Text>{attendanceDate.toDateString()}</Text>
+              <MaterialIcons name="calendar-today" size={20} color="#5D3FD3" />
+            </TouchableOpacity>
+            {showDatePicker && (
+              <DateTimePicker
+                value={attendanceDate}
+                mode="date"
+                display="default"
+                onChange={handleDateChange}
+              />
+            )}
+          </View>
+
+          <View style={styles.sessionPickerContainer}>
+            <Text style={styles.sessionLabel}>Session:</Text>
+            <Picker
+              selectedValue={attendanceSession}
+              style={styles.sessionPicker}
+              onValueChange={(itemValue) => setAttendanceSession(itemValue)}
+              dropdownIconColor="#5D3FD3"
+            >
+              <Picker.Item label="Morning" value="Morning" />
+              <Picker.Item label="Afternoon" value="Afternoon" />
+            </Picker>
+          </View>
+
+          <ScrollView style={styles.attendanceList}>
+            {students.map(student => (
+              <View key={student.adm_no} style={styles.attendanceRecord}>
+                <View style={styles.studentInfoContainer}>
+                  {renderAvatar(student)}
+                  <View style={styles.studentInfoText}>
+                    <Text style={styles.studentName}>{student.name}</Text>
+                    <Text style={styles.studentAdmNo}>{student.adm_no}</Text>
+                  </View>
+                </View>
+                
+                <View style={styles.attendanceOptions}>
+                  <TouchableOpacity
+                    style={[
+                      styles.attendanceOption,
+                      attendanceRecords[student.adm_no] === 'present' && styles.selectedOption
+                    ]}
+                    onPress={() => handleAttendanceChange(student.adm_no, 'present')}
+                  >
+                    <Text style={[
+                      styles.optionText,
+                      attendanceRecords[student.adm_no] === 'present' && styles.selectedOptionText
+                    ]}>
+                      Present
+                    </Text>
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity
+                    style={[
+                      styles.attendanceOption,
+                      attendanceRecords[student.adm_no] === 'absent' && styles.selectedOptionAbsent
+                    ]}
+                    onPress={() => handleAttendanceChange(student.adm_no, 'absent')}
+                  >
+                    <Text style={[
+                      styles.optionText,
+                      attendanceRecords[student.adm_no] === 'absent' && styles.selectedOptionText
+                    ]}>
+                      Absent
+                    </Text>
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity
+                    style={[
+                      styles.attendanceOption,
+                      attendanceRecords[student.adm_no] === 'late' && styles.selectedOptionLate
+                    ]}
+                    onPress={() => handleAttendanceChange(student.adm_no, 'late')}
+                  >
+                    <Text style={[
+                      styles.optionText,
+                      attendanceRecords[student.adm_no] === 'late' && styles.selectedOptionText
+                    ]}>
+                      Late
+                    </Text>
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity
+                    style={[
+                      styles.attendanceOption,
+                      attendanceRecords[student.adm_no] === 'excused' && styles.selectedOptionExcused
+                    ]}
+                    onPress={() => handleAttendanceChange(student.adm_no, 'excused')}
+                  >
+                    <Text style={[
+                      styles.optionText,
+                      attendanceRecords[student.adm_no] === 'excused' && styles.selectedOptionText
+                    ]}>
+                      Excused
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                {['absent', 'late', 'excused'].includes(attendanceRecords[student.adm_no]) && (
+                  <TextInput
+                    style={styles.reasonInput}
+                    placeholder="Enter reason..."
+                    value={absentReasons[student.adm_no]}
+                    onChangeText={(text) => handleReasonChange(student.adm_no, text)}
+                  />
+                )}
+              </View>
+            ))}
+          </ScrollView>
+
+          <View style={styles.modalFooter}>
+            <TouchableOpacity
+              style={styles.cancelButton}
+              onPress={() => setShowAttendanceModal(false)}
+              disabled={isMarkingAttendance}
+            >
+              <Text style={styles.cancelButtonText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.submitButton}
+              onPress={submitAttendance}
+              disabled={isMarkingAttendance}
+            >
+              {isMarkingAttendance ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.submitButtonText}>Submit Attendance</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </SafeAreaView>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -453,43 +845,75 @@ const ClassesTab = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F5F7FA',
+    backgroundColor: '#f8f9fa',
   },
   header: {
-    padding: 20,
+    padding: 16,
+    backgroundColor: '#ffffff',
     borderBottomWidth: 1,
-    borderBottomColor: '#E0E0E0',
-    backgroundColor: '#fff',
+    borderBottomColor: '#e9ecef',
+    elevation: 2,
   },
   title: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#333',
+    fontSize: 22,
+    fontWeight: '600',
+    color: '#212529',
     textAlign: 'center',
+    fontFamily: 'sans-serif-medium',
+  },
+  subtitle: {
+    fontSize: 14,
+    color: '#6c757d',
+    textAlign: 'center',
+    marginTop: 4,
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.7)',
   },
   section: {
-    marginBottom: 20,
-    backgroundColor: '#fff',
-    borderRadius: 12,
+    margin: 12,
+    backgroundColor: '#ffffff',
+    borderRadius: 10,
     padding: 16,
-    marginHorizontal: 16,
-    marginTop: 16,
+    elevation: 1,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 6,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+  },
+  classHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  attendanceButtonsContainer: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  markAttendanceButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#6f42c1',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    elevation: 2,
+  },
+  markAttendanceButtonText: {
+    color: '#ffffff',
+    marginLeft: 6,
+    fontSize: 14,
+    fontWeight: '500',
   },
   sectionTitle: {
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '600',
-    color: '#444',
-    marginBottom: 12,
+    color: '#343a40',
+    marginBottom: 8,
   },
   horizontalList: {
     paddingVertical: 8,
@@ -497,51 +921,64 @@ const styles = StyleSheet.create({
   classItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F0EBF8',
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    marginRight: 10,
-    minWidth: 120,
+    backgroundColor: '#e9ecef',
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginRight: 8,
+    minWidth: 100,
     justifyContent: 'center',
+    elevation: 1,
   },
   selectedItem: {
-    backgroundColor: '#5D3FD3',
+    backgroundColor: '#6f42c1',
+  },
+  teacherClassItem: {
+    backgroundColor: '#6f42c1',
+    borderWidth: 1,
+    borderColor: '#5a32a3',
   },
   classText: {
-    marginLeft: 8,
-    fontSize: 16,
+    marginLeft: 6,
+    fontSize: 15,
     fontWeight: '500',
-    color: '#5D3FD3',
+    color: '#495057',
+  },
+  teacherClassText: {
+    color: '#ffffff',
   },
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F5F5F5',
-    borderRadius: 10,
+    backgroundColor: '#e9ecef',
+    borderRadius: 8,
     paddingHorizontal: 12,
-    marginBottom: 16,
+    paddingVertical: 8,
+    marginBottom: 12,
   },
   searchIcon: {
     marginRight: 8,
+    color: '#6c757d',
   },
   searchInput: {
     flex: 1,
-    height: 40,
-    color: '#333',
+    height: 36,
+    color: '#212529',
+    fontSize: 15,
   },
   listContent: {
-    paddingBottom: 16,
+    paddingBottom: 8,
   },
   studentItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 10,
+    backgroundColor: '#ffffff',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 8,
     borderWidth: 1,
-    borderColor: '#EEE',
+    borderColor: '#e9ecef',
+    elevation: 1,
   },
   studentAvatar: {
     justifyContent: 'center',
@@ -553,218 +990,400 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   studentName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
+    fontSize: 15,
+    fontWeight: '500',
+    color: '#212529',
   },
   studentAdmNo: {
-    fontSize: 14,
-    color: '#777',
+    fontSize: 13,
+    color: '#6c757d',
+    marginTop: 2,
   },
   detailsContainer: {
     flex: 1,
-    backgroundColor: '#F5F7FA',
-    paddingHorizontal: 16,
+    backgroundColor: '#f8f9fa',
+    paddingHorizontal: 12,
   },
   studentHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 20,
-    marginVertical: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 6,
-    elevation: 3,
+    backgroundColor: '#ffffff',
+    borderRadius: 10,
+    padding: 16,
+    marginVertical: 12,
+    elevation: 2,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
   },
   studentHeaderInfo: {
     flex: 1,
+    marginLeft: 12,
   },
   studentHeaderName: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#333',
-    marginBottom: 4,
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#212529',
   },
   studentHeaderDetails: {
     fontSize: 14,
-    color: '#777',
+    color: '#6c757d',
+    marginTop: 4,
   },
   tabsContainer: {
     flexDirection: 'row',
-    backgroundColor: '#F0EBF8',
-    borderRadius: 10,
-    padding: 4,
-    marginBottom: 16,
+    backgroundColor: '#e9ecef',
+    borderRadius: 8,
+    padding: 2,
+    marginBottom: 12,
   },
   tabButton: {
     flex: 1,
-    paddingVertical: 10,
-    borderRadius: 8,
+    paddingVertical: 8,
+    borderRadius: 6,
     alignItems: 'center',
   },
   activeTab: {
-    backgroundColor: '#5D3FD3',
+    backgroundColor: '#6f42c1',
   },
   tabText: {
     fontSize: 14,
-    fontWeight: '600',
-    color: '#777',
+    fontWeight: '500',
+    color: '#6c757d',
   },
   activeTabText: {
-    color: '#fff',
+    color: '#ffffff',
   },
   pickerContainer: {
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    marginBottom: 16,
+    backgroundColor: '#ffffff',
+    borderRadius: 8,
+    marginBottom: 12,
     overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#e9ecef',
   },
   picker: {
-    height: 50,
-    color: '#333',
+    height: 46,
+    color: '#212529',
   },
   card: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
+    backgroundColor: '#ffffff',
+    borderRadius: 10,
     padding: 16,
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 6,
-    elevation: 3,
+    marginBottom: 12,
+    elevation: 1,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
   },
   cardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 12,
   },
   cardTitle: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#333',
+    color: '#212529',
     marginLeft: 8,
   },
-  attendanceItem: {
-    marginBottom: 12,
-  },
-  attendanceMonth: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#555',
-    marginBottom: 4,
-  },
-  progressContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  progressBar: {
-    flex: 1,
-    height: 8,
-    backgroundColor: '#EEE',
-    borderRadius: 4,
-    overflow: 'hidden',
-    marginRight: 10,
-  },
-  progressFill: {
-    height: '100%',
-    backgroundColor: '#5D3FD3',
-  },
-  attendanceText: {
-    fontSize: 12,
-    color: '#777',
-  },
-  progressText: {
-    fontSize: 12,
-    color: '#777',
-    marginLeft: 10,
-  },
-  table: {
+  attendanceTable: {
     borderWidth: 1,
-    borderColor: '#EEE',
+    borderColor: '#e9ecef',
     borderRadius: 8,
     overflow: 'hidden',
   },
+  attendanceTableHeader: {
+    flexDirection: 'row',
+    backgroundColor: '#f1f3f5',
+    paddingVertical: 10,
+  },
+  attendanceTableHeaderText: {
+    flex: 1,
+    textAlign: 'center',
+    fontWeight: '600',
+    color: '#495057',
+  },
+  attendanceTableRow: {
+    flexDirection: 'row',
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e9ecef',
+    alignItems: 'center',
+  },
+  attendanceTableCell: {
+    flex: 1,
+    textAlign: 'center',
+    color: '#495057',
+    fontSize: 14,
+  },
+  statusBadge: {
+    flex: 1,
+    paddingVertical: 4,
+    borderRadius: 6,
+    marginHorizontal: 4,
+    alignItems: 'center',
+  },
+  statusText: {
+    color: '#ffffff',
+    fontWeight: '500',
+    fontSize: 12,
+  },
+  table: {
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+    borderRadius: 8,
+    overflow: 'hidden',
+    marginVertical: 8,
+  },
   tableHeader: {
     flexDirection: 'row',
-    backgroundColor: '#F0EBF8',
-    paddingVertical: 10,
+    backgroundColor: '#f1f3f5',
+    paddingVertical: 12,
+    paddingHorizontal: 4,
   },
   tableHeaderText: {
     flex: 1,
     textAlign: 'center',
     fontWeight: '600',
-    color: '#5D3FD3',
+    color: '#495057',
+    fontSize: 14,
+    paddingVertical: 4,
   },
   tableRow: {
     flexDirection: 'row',
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#EEE',
+    borderBottomColor: '#e9ecef',
     alignItems: 'center',
+    paddingHorizontal: 4,
   },
   tableCell: {
     flex: 1,
-    textAlign: 'center',
-    color: '#555',
+    textAlign: 'left',
+    color: '#495057',
+    fontSize: 14,
+    paddingVertical: 4,
+    marginHorizontal: 2,
   },
   gradeBadge: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     justifyContent: 'center',
     alignItems: 'center',
+    marginHorizontal: 'auto', // Centers the badge in its cell
+    elevation: 1,
   },
   gradeText: {
-    color: '#fff',
+    color: '#ffffff',
     fontWeight: 'bold',
+    fontSize: 13,
+    textAlign: 'center',
+    width: '100%',
   },
   reportItem: {
-    backgroundColor: '#F9F9F9',
+    backgroundColor: '#f8f9fa',
     borderRadius: 8,
     padding: 12,
     marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
   },
   reportType: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#333',
+    color: '#212529',
     marginBottom: 4,
   },
   reportScore: {
     fontSize: 13,
-    color: '#555',
+    color: '#495057',
     marginBottom: 2,
   },
   reportPeriod: {
     fontSize: 12,
-    color: '#777',
+    color: '#6c757d',
   },
   feeItem: {
-    marginBottom: 16,
+    marginBottom: 12,
   },
   feeInfo: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 8,
+    marginBottom: 6,
   },
   feeLabel: {
     fontSize: 14,
-    color: '#555',
+    color: '#495057',
   },
   feeAmount: {
     fontSize: 14,
-    fontWeight: '600',
-    color: '#333',
+    fontWeight: '500',
+    color: '#212529',
   },
   noDataText: {
     textAlign: 'center',
-    color: '#888',
+    color: '#6c757d',
     fontStyle: 'italic',
     paddingVertical: 16,
+  },
+  sessionPickerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e9ecef',
+  },
+  sessionLabel: {
+    fontSize: 15,
+    marginRight: 10,
+    color: '#495057',
+    fontWeight: '500',
+  },
+  sessionPicker: {
+    flex: 1,
+    height: 46,
+    color: '#212529',
+  },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: '#ffffff',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e9ecef',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#212529',
+  },
+  datePickerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e9ecef',
+  },
+  dateLabel: {
+    fontSize: 15,
+    marginRight: 10,
+    color: '#495057',
+    fontWeight: '500',
+  },
+  dateInput: {
+    flex: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 10,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+    borderRadius: 6,
+    backgroundColor: '#f8f9fa',
+  },
+  attendanceList: {
+    flex: 1,
+    padding: 12,
+  },
+  attendanceRecord: {
+    marginBottom: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+    borderRadius: 8,
+    backgroundColor: '#f8f9fa',
+  },
+  studentInfoContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  studentInfoText: {
+    marginLeft: 12,
+  },
+  attendanceOptions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+    gap: 4,
+  },
+  attendanceOption: {
+    flex: 1,
+    padding: 8,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
+  },
+  selectedOption: {
+    backgroundColor: '#6f42c1',
+    borderColor: '#6f42c1',
+  },
+  selectedOptionAbsent: {
+    backgroundColor: '#dc3545',
+    borderColor: '#dc3545',
+  },
+  selectedOptionLate: {
+    backgroundColor: '#ffc107',
+    borderColor: '#ffc107',
+  },
+  selectedOptionExcused: {
+    backgroundColor: '#6f42c1',
+    borderColor: '#6f42c1',
+  },
+  optionText: {
+    color: '#495057',
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  selectedOptionText: {
+    color: '#ffffff',
+  },
+  reasonInput: {
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+    borderRadius: 6,
+    padding: 10,
+    marginTop: 8,
+    backgroundColor: '#ffffff',
+  },
+  modalFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    padding: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#e9ecef',
+    gap: 8,
+  },
+  cancelButton: {
+    flex: 1,
+    padding: 12,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
+  },
+  cancelButtonText: {
+    color: '#495057',
+    fontWeight: '500',
+  },
+  submitButton: {
+    flex: 1,
+    padding: 12,
+    borderRadius: 6,
+    backgroundColor: '#6f42c1',
+    alignItems: 'center',
+    elevation: 2,
+  },
+  submitButtonText: {
+    color: '#ffffff',
+    fontWeight: '500',
   },
 });
 

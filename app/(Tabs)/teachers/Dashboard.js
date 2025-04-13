@@ -23,6 +23,7 @@ const ProfileScreen = () => {
   const [showImagePickerModal, setShowImagePickerModal] = useState(false);
   const [subjects, setSubjects] = useState([]);
   const [selectedSubject, setSelectedSubject] = useState('');
+  const [randomSubject, setRandomSubject] = useState('');
   const [subjectPerformance, setSubjectPerformance] = useState([]);
   const [analysisLoading, setAnalysisLoading] = useState(false);
 
@@ -108,7 +109,16 @@ const ProfileScreen = () => {
           .order('subject_name', { ascending: true });
 
         if (error) throw error;
-        setSubjects(data.map(subject => subject.subject_name));
+        
+        const subjectList = data.map(subject => subject.subject_name);
+        setSubjects(subjectList);
+        
+        // Set a random subject if there are subjects available
+        if (subjectList.length > 0) {
+          const randomIndex = Math.floor(Math.random() * subjectList.length);
+          setRandomSubject(subjectList[randomIndex]);
+          setSelectedSubject(subjectList[randomIndex]);
+        }
       } catch (error) {
         console.error('Error fetching subjects:', error);
         Alert.alert('Error', 'Failed to load subjects');
@@ -382,10 +392,26 @@ const ProfileScreen = () => {
                 borderRadius: 16
               }}
             />
-            <Text style={styles.chartNote}>Average scores for {selectedSubject} in {teacher.class_teacher}</Text>
+            <Text style={styles.chartNote}>
+              {selectedSubject === randomSubject ? (
+                <>
+                  Today's featured subject: <Text style={{fontWeight: 'bold'}}>{selectedSubject}</Text> in {teacher.class_teacher}
+                </>
+              ) : (
+                <>
+                  Average scores for <Text style={{fontWeight: 'bold'}}>{selectedSubject}</Text> in {teacher.class_teacher}
+                </>
+              )}
+            </Text>
           </View>
         ) : selectedSubject ? (
-          <Text style={styles.value}>No performance data available for {selectedSubject}</Text>
+          <Text style={styles.value}>
+            {selectedSubject === randomSubject ? (
+              `No performance data available for today's featured subject: ${selectedSubject}`
+            ) : (
+              `No performance data available for ${selectedSubject}`
+            )}
+          </Text>
         ) : (
           <Text style={styles.value}>Please select a subject to view performance</Text>
         )}

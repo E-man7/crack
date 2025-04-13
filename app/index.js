@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Image } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import { LinearGradient } from 'expo-linear-gradient'; // For gradient background
-import Animated, { FadeIn, FadeOut } from 'react-native-reanimated'; // For animations
+import { LinearGradient } from 'expo-linear-gradient';
+import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 import AppNavigator from './AppNavigator';
 import { UserProvider } from './context/UserContext';
 
@@ -19,28 +19,29 @@ export default function App() {
 
   return (
     <LinearGradient
-      colors={['#AEF5F8', '#6a11cb']} // Gradient colors
+      colors={['#0E294A', '#1C6EB6', '#6EA4D8']} // Your brand colors as gradient
+      start={{ x: 0.5, y: 0 }}
+      end={{ x: 0.5, y: 1 }}
       style={styles.container}
     >
-      {/* Animated Logo */}
-      <Animated.View entering={FadeIn.duration(1000)} exiting={FadeOut}>
+      <Animated.View entering={FadeIn.duration(800)} exiting={FadeOut}>
         <Image
-          source={{ uri: 'https://mgtkcujpiitudmzldjsy.supabase.co/storage/v1/object/public/school360/logo/logo12.png' }}
+          source={{ uri: 'https://mgtkcujpiitudmzldjsy.supabase.co/storage/v1/object/public/school360//logo13.jpeg' }}
           style={styles.logo}
         />
       </Animated.View>
 
-      {/* App Name */}
       <Text style={styles.title}>Welcome to L-Track</Text>
+      <Text style={styles.subtitle}>Efficiency Meets Education</Text>
 
-      {/* Catchphrase */}
-      <Text style={styles.subtitle}>Efficiency Meets Education.</Text>
+      <StatusBar style="light" />
 
-      <StatusBar style="auto" />
-
-      {/* Animated Button */}
-      <Animated.View entering={FadeIn.delay(500).duration(1000)} exiting={FadeOut}>
-        <TouchableOpacity style={styles.button} onPress={() => setShowNavigator(true)}>
+      <Animated.View entering={FadeIn.delay(400).duration(800)}>
+        <TouchableOpacity 
+          style={styles.button} 
+          onPress={() => setShowNavigator(true)}
+          activeOpacity={0.7}
+        >
           <Text style={styles.buttonText}>Get Started</Text>
         </TouchableOpacity>
       </Animated.View>
@@ -56,42 +57,44 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   logo: {
-    width: 150,
-    height: 150,
-    marginBottom: 20,
-    borderRadius: 10,
-    shadowColor: '#000', // Shadow for logo
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 5, // For Android
+    width: 180,
+    height: 180,
+    marginBottom: 25,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.2)',
   },
   title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    marginBottom: 20,
-    color: '#ffffff', // White text for better contrast
+    fontSize: 32,
+    fontWeight: '700',
+    marginBottom: 12,
+    color: '#FFFFFF',
+    textShadowColor: 'rgba(0,0,0,0.2)',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 3,
   },
   subtitle: {
-    fontSize: 16,
-    textAlign: 'center',
-    marginBottom: 30,
-    color: '#e0e0e0', // Light gray for better readability
+    fontSize: 18,
+    marginBottom: 40,
+    color: 'rgba(255,255,255,0.9)',
+    letterSpacing: 0.5,
   },
   button: {
-    backgroundColor: '#ffffff', // White button
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 8,
-    shadowColor: '#000', // Shadow for button
-    shadowOffset: { width: 0, height: 2 },
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 40,
+    paddingVertical: 15,
+    borderRadius: 30,
+    shadowColor: '#0E294A',
+    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 5, // For Android
+    shadowRadius: 6,
+    elevation: 8,
   },
   buttonText: {
-    color: '#2575fc', // Blue text to match gradient
-    fontSize: 16,
-    fontWeight: 'bold',
+    color: '#1C6EB6',
+    fontSize: 18,
+    fontWeight: '600',
+    letterSpacing: 0.5,
   },
 });
