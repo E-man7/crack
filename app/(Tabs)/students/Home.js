@@ -20,6 +20,29 @@ const Home = ({ navigation }) => {
   const [showImagePickerModal, setShowImagePickerModal] = useState(false);
   const [avatars, setAvatars] = useState([]);
   const [loadingAvatars, setLoadingAvatars] = useState(false);
+  const [schoolWebsite, setSchoolWebsite] = useState('');
+
+  // Improved hexToRgb function with better error handling
+  const hexToRgb = (hex) => {
+    if (!hex || typeof hex !== 'string') {
+      return [0, 0, 0]; // Return black as default if invalid
+    }
+    
+    // Remove # if present
+    const hexColor = hex.replace('#', '');
+    
+    // Only proceed if we have a valid hex color (3 or 6 characters)
+    if (hexColor.length !== 3 && hexColor.length !== 6) {
+      return [0, 0, 0]; // Return black as default if invalid
+    }
+
+    // Parse the hex string to RGB values
+    const r = parseInt(hexColor.length === 3 ? hexColor[0] + hexColor[0] : hexColor.substring(0, 2), 16);
+    const g = parseInt(hexColor.length === 3 ? hexColor[1] + hexColor[1] : hexColor.substring(2, 4), 16);
+    const b = parseInt(hexColor.length === 3 ? hexColor[2] + hexColor[2] : hexColor.substring(4, 6), 16);
+
+    return [r, g, b];
+  };
 
   const fetchUserData = async () => {
     try {
@@ -36,6 +59,19 @@ const Home = ({ navigation }) => {
 
       if (studentData.profile_image) {
         setStudentImage({ uri: studentData.profile_image });
+      }
+
+      // Fetch school website if school_id exists
+      if (studentData.school_id) {
+        const { data: schoolData, error: schoolError } = await supabase
+          .from('schools')
+          .select('link')
+          .eq('id', studentData.school_id)
+          .single();
+
+        if (!schoolError && schoolData?.link) {
+          setSchoolWebsite(schoolData.link);
+        }
       }
 
       const { data: feeData, error: feeError } = await supabase
@@ -221,7 +257,6 @@ const Home = ({ navigation }) => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       
-      // Update the profile image in the students table
       const { error } = await supabase
         .from('students')
         .update({ profile_image: avatarUri })
@@ -241,7 +276,6 @@ const Home = ({ navigation }) => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       
-      // Upload the image to Supabase storage
       const fileInfo = await FileSystem.getInfoAsync(uri);
       if (!fileInfo.exists) throw new Error('File not found');
 
@@ -262,12 +296,10 @@ const Home = ({ navigation }) => {
 
       if (uploadError) throw uploadError;
 
-      // Get the public URL
       const { data: { publicUrl } } = supabase.storage
         .from('avatars')
         .getPublicUrl(filePath);
 
-      // Update the profile image in the students table
       const { error: updateError } = await supabase
         .from('students')
         .update({ profile_image: publicUrl })
@@ -303,7 +335,7 @@ const Home = ({ navigation }) => {
 
   const totalFees = Number(userData.total_fees) || 0;
   const paidFees = Number(userData.paid_fees) || 0;
-  const outstandingFees = totalFees - paidFees;
+  const outstandingFees = Math.max(0, totalFees - paidFees);
 
   const barData = {
     labels: subjects.map(subject => subject.subject_name),
@@ -316,7 +348,10 @@ const Home = ({ navigation }) => {
 
   const progressData = {
     labels: ['Paid', 'Outstanding'],
-    data: totalFees === 0 ? [0, 0] : [paidFees / totalFees, outstandingFees / totalFees],
+    data: totalFees === 0 ? [0, 0] : [
+      Math.min(1, Math.max(0, paidFees / totalFees)),
+      Math.min(1, Math.max(0, outstandingFees / totalFees))
+    ],
   };
 
   const barChartConfig = {
@@ -335,7 +370,7 @@ const Home = ({ navigation }) => {
   };
 
   return (
-    <LinearGradient colors={['#49AAAE', '#AEF5F8' ]} style={styles.container}>
+    <LinearGradient colors={['#49AAAE', '#AEF5F8']} style={styles.container}>
       <StatusBar backgroundColor="#037f8c" barStyle="light-content" />
       <ScrollView
         refreshControl={
@@ -414,13 +449,15 @@ const Home = ({ navigation }) => {
         </Modal>
 
         {/* School Website Button */}
-        <TouchableOpacity
-          style={styles.websiteButton}
-          onPress={() => Linking.openURL('https://www.schoolwebsite.com')}
-        >
-          <Text style={styles.websiteButtonText}>Visit School Website</Text>
-          <Icon name="arrow-forward" size={20} color="#037f8c" />
-        </TouchableOpacity>
+        {schoolWebsite ? (
+          <TouchableOpacity
+            style={styles.websiteButton}
+            onPress={() => Linking.openURL(schoolWebsite)}
+          >
+            <Text style={styles.websiteButtonText}>Visit School Website</Text>
+            <Icon name="arrow-forward" size={20} color="#037f8c" />
+          </TouchableOpacity>
+        ) : null}
 
         {/* Attendance Section */}
         <TouchableOpacity onPress={() => navigation.navigate('Attendance')}>
@@ -456,63 +493,85 @@ const Home = ({ navigation }) => {
 
         {/* Combined Fee and Pie Chart Section */}
         <TouchableOpacity onPress={() => navigation.navigate('Fee')}>
-          <View style={styles.combinedCard}>
-            {/* Fee Section */}
-            <View style={styles.feeContainer}>
-              <View style={styles.feeCard}>
-                <Text style={styles.feeTitle}>Annual Fee</Text>
-                <Text style={styles.feeValue}>{totalFees.toLocaleString()} Ksh</Text>
-              </View>
-              <View style={styles.feeCard}>
-                <Text style={styles.feeTitle}>Amount Paid</Text>
-                <Text style={styles.feeValue}>{paidFees.toLocaleString()} Ksh</Text>
-              </View>
-              <View style={styles.feeCard}>
-                <Text style={styles.feeTitle}>Outstanding Fee</Text>
-                <Text style={styles.feeValue}>{outstandingFees.toLocaleString()} Ksh</Text>
-              </View>
+        <View style={styles.combinedCard}>
+          {/* Fee Section */}
+          <View style={styles.feeContainer}>
+            <View style={styles.feeCard}>
+              <Text style={styles.feeTitle}>Annual Fee</Text>
+              <Text style={styles.feeValue}>{totalFees.toLocaleString()} Ksh</Text>
             </View>
-
-            {/* Pie Chart Section */}
-            <View style={styles.pieContainer}>
-              <ProgressChart
-                data={progressData}
-                width={width - 40}
-                height={150}
-                strokeWidth={16}
-                radius={32}
-                chartConfig={{
-                  backgroundColor: '#FFFFFF',
-                  backgroundGradientFrom: '#FFFFFF',
-                  backgroundGradientTo: '#FFFFFF',
-                  decimalPlaces: 1,
-                  color: (opacity = 1) => `rgba(174, 245, 248, ${opacity})`,
-                  labelColor: (opacity = 1) => `rgba(0, 0, 0, ${opacity})`,
-                  style: { borderRadius: 16 },
-                  propsForDots: {
-                    r: '4',
-                    strokeWidth: '2',
-                    stroke: '#6a11cb',
-                  },
-                }}
-                hideLegend={false}
-                style={styles.progressChart}
-              />
+            <View style={styles.feeCard}>
+              <Text style={styles.feeTitle}>Amount Paid</Text>
+              <Text style={styles.feeValue}>{paidFees.toLocaleString()} Ksh</Text>
             </View>
-
-            {/* Custom Legend */}
-            <View style={styles.legendContainer}>
-              <View style={styles.legendItem}>
-                <View style={[styles.legendColor, { backgroundColor: '#AEF5F8' }]} />
-                <Text style={styles.legendText}>Paid Fees</Text>
-              </View>
-              <View style={styles.legendItem}>
-                <View style={[styles.legendColor, { backgroundColor: '#6a11cb' }]} />
-                <Text style={styles.legendText}>Outstanding Fees</Text>
-              </View>
+            <View style={styles.feeCard}>
+              <Text style={styles.feeTitle}>Outstanding Fee</Text>
+              <Text style={styles.feeValue}>{outstandingFees.toLocaleString()} Ksh</Text>
             </View>
           </View>
-        </TouchableOpacity>
+
+          <View style={styles.pieContainer}>
+            <ProgressChart
+              data={progressData}
+              width={width - 40}
+              height={180}
+              strokeWidth={20}
+              radius={40}
+              chartConfig={{
+                backgroundColor: '#FFFFFF',
+                backgroundGradientFrom: '#FFFFFF',
+                backgroundGradientTo: '#FFFFFF',
+                decimalPlaces: 1,
+                color: (opacity = 1, index) => {
+                  const colors = ['#0A71F2', '#F44336', '#2196F3', '#FFC107'];
+                  const defaultColor = '#000000';
+                  const hexColor = colors[index] || defaultColor;
+                  const [r, g, b] = hexToRgb(hexColor);
+                  return `rgba(${r}, ${g}, ${b}, ${opacity})`;
+                },
+                labelColor: (opacity = 1) => `rgba(0, 0, 0, ${opacity})`,
+                style: { 
+                  borderRadius: 16,
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: 0.1,
+                  shadowRadius: 4,
+                  elevation: 3,
+                },
+                propsForDots: {
+                  r: '6',
+                  strokeWidth: '3',
+                  stroke: '#EA4335',
+                },
+              }}
+              hideLegend={false}
+              style={styles.progressChart}
+            />
+          </View>
+
+          {/* Custom Legend */}
+          <View style={styles.legendContainer}>
+            <View style={styles.legendItem}>
+              <View style={[styles.legendColor, { 
+                backgroundColor: '#0A71F2',
+                width: 16,
+                height: 16,
+                borderRadius: 8,
+              }]} />
+              <Text style={[styles.legendText, { fontWeight: '600' }]}>Paid Fees</Text>
+            </View>
+            <View style={styles.legendItem}>
+              <View style={[styles.legendColor, { 
+                backgroundColor: '#F44336',
+                width: 16,
+                height: 16,
+                borderRadius: 8,
+              }]} />
+              <Text style={[styles.legendText, { fontWeight: '600' }]}>Outstanding Fees</Text>
+            </View>
+          </View>
+          </View>
+          </TouchableOpacity>
 
         {/* Notifications Section */}
         <TouchableOpacity onPress={() => navigation.navigate('Notifications')}>
@@ -529,40 +588,52 @@ const Home = ({ navigation }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: '#f8f9fa',
   },
   dashboardHeader: {
     backgroundColor: 'transparent',
-    paddingVertical: 16,
+    paddingVertical: 20,
     alignItems: 'center',
     justifyContent: 'center',
   },
   dashboardHeaderText: {
-    fontSize: 24,
-    fontWeight: 'bold',
+    fontSize: 26, 
+    fontWeight: '800',
     color: '#ffffff',
+    textShadowColor: 'rgba(0,0,0,0.2)', 
+    textShadowOffset: {width: 1, height: 1},
+    textShadowRadius: 3,
   },
   header: {
     flexDirection: 'row',
     backgroundColor: '#037f8c',
-    padding: 50,
+    padding: 30, 
+    paddingTop: 50, 
     alignItems: 'center',
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    elevation: 10,
   },
   imageContainer: {
     position: 'relative',
-    marginRight: 16,
+    marginRight: 20, 
   },
   profileImage: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    borderWidth: 2,
+    width: 90, 
+    height: 90,
+    borderRadius: 45,
+    borderWidth: 3, 
     borderColor: '#ffffff',
   },
   placeholderImage: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    borderWidth: 2,
+    width: 90,
+    height: 90,
+    borderRadius: 45,
+    borderWidth: 3,
     borderColor: '#ffffff',
     backgroundColor: '#e0e0e0',
     justifyContent: 'center',
@@ -572,17 +643,19 @@ const styles = StyleSheet.create({
     flex: 2,
   },
   name: {
-    fontSize: 22,
+    fontSize: 24, 
     color: '#ffffff',
-    fontWeight: 'bold',
+    fontWeight: '800',
+    marginBottom: 4,
   },
   grade: {
-    fontSize: 20,
-    color: '#ffffff',
+    fontSize: 18, 
+    color: 'rgba(255,255,255,0.9)',
+    marginBottom: 4,
   },
   adm: {
-    fontSize: 20,
-    color: '#ffffff',
+    fontSize: 18,
+    color: 'rgba(255,255,255,0.9)',
   },
   websiteButton: {
     flexDirection: 'row',
@@ -590,99 +663,120 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginHorizontal: 20,
     marginVertical: 20,
+    backgroundColor: '#037f8c',
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 30, 
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
   },
   websiteButtonText: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: '#e0e0e0',
+    color: '#ffffff',
     marginRight: 8,
   },
   attendanceContainer: {
     paddingHorizontal: 20,
-    marginVertical: 20,
+    marginVertical: 15,
   },
   attendanceCard: {
-    backgroundColor: '#e0e0e0',
-    padding: 16,
-    borderRadius: 8,
+    backgroundColor: '#ffffff',
+    padding: 20,
+    borderRadius: 12,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 3,
   },
   attendanceCardText: {
     fontSize: 16,
-    fontWeight: 'bold',
-  },
-  attendancePercentageText: {
-    fontSize: 16,
-    fontWeight: 'bold',
     color: '#037f8c',
   },
   performanceContainer: {
-    marginVertical: 20,
-    paddingHorizontal: 20,
+    marginVertical: 15,
+    paddingHorizontal: 15,
     alignItems: 'center',
   },
   performanceCard: {
     backgroundColor: '#49AAAE',
-    padding: 26,
-    borderRadius: 8,
-    width: '117%',
+    padding: 20,
+    borderRadius: 16, 
+    width: '110%', 
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 6,
   },
   performanceText: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 8,
+    fontSize: 20, 
+    fontWeight: '800',
+    marginBottom: 12,
     textAlign: 'left',
     marginLeft: 10,
+    color: '#fff',
   },
   barChart: {
-    marginVertical: 8,
-    borderRadius: 10,
+    marginVertical: 12,
+    borderRadius: 12,
     backgroundColor: '#ffffff',
-    padding: 20,
+    padding: 16,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 4,
   },
   combinedCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 16,
-    marginHorizontal: 20,
-    marginVertical: 20,
+    borderRadius: 20, 
+    padding: 20,
+    marginHorizontal: 15,
+    marginVertical: 15,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 5,
   },
   feeContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 20,
+    marginBottom: 15,
   },
   feeCard: {
     backgroundColor: '#F5F5F5',
-    padding: 12,
-    borderRadius: 8,
+    padding: 15,
+    borderRadius: 12,
     width: '30%',
     alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
   },
   feeTitle: {
     fontSize: 14,
     color: '#666666',
+    marginBottom: 5,
   },
   feeValue: {
-    fontSize: 16,
-    fontWeight: 'bold',
+    fontSize: 18,
+    fontWeight: '800',
     color: '#037f8c',
   },
   pieContainer: {
     alignItems: 'center',
-    marginBottom: 10,
+    marginBottom: 15,
   },
   progressChart: {
     borderRadius: 16,
@@ -690,106 +784,148 @@ const styles = StyleSheet.create({
   legendContainer: {
     flexDirection: 'row',
     justifyContent: 'center',
-    marginTop: 10,
+    marginTop: 15,
+    flexWrap: 'wrap',
   },
   legendItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginHorizontal: 10,
+    marginHorizontal: 8,
+    marginVertical: 4,
   },
   legendColor: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    marginRight: 5,
+    width: 14, 
+    height: 14,
+    borderRadius: 7,
+    marginRight: 6,
   },
   legendText: {
     fontSize: 14,
-    color: '#000000',
+    color: '#333333', 
   },
   notificationCard: {
-    backgroundColor: '#e0e0e0',
-    padding: 16,
-    borderRadius: 8,
-    marginHorizontal: 20,
-    marginVertical: 20,
+    backgroundColor: '#ffffff',
+    padding: 18,
+    borderRadius: 12,
+    marginHorizontal: 15,
+    marginVertical: 10,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 3,
   },
   notificationCardText: {
     fontSize: 16,
-    fontWeight: 'bold',
+    fontWeight: '600',
+    color: '#333',
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.9)',
   },
   errorText: {
     fontSize: 16,
     color: 'red',
+    textAlign: 'center',
+    padding: 20,
   },
-  // Modal styles
+  
   modalContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: 'rgba(0,0,0,0.7)',
   },
   modalContent: {
-    width: '90%',
+    width: '85%',
     backgroundColor: 'white',
-    borderRadius: 10,
-    padding: 20,
+    borderRadius: 16,
+    padding: 25,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.3,
+    shadowRadius: 15,
+    elevation: 10,
   },
   modalTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 20,
+    fontSize: 20,
+    fontWeight: '800',
+    marginBottom: 25,
     textAlign: 'center',
     color: '#037f8c',
   },
   modalOption: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 15,
+    paddingVertical: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
+    borderBottomColor: '#f0f0f0',
   },
   modalOptionText: {
-    marginLeft: 15,
-    fontSize: 16,
+    marginLeft: 18,
+    fontSize: 17,
+    color: '#444',
   },
   avatarSectionTitle: {
-    marginTop: 15,
-    marginBottom: 10,
-    fontSize: 16,
-    fontWeight: 'bold',
+    marginTop: 20,
+    marginBottom: 15,
+    fontSize: 17,
+    fontWeight: '800',
     color: '#037f8c',
   },
   avatarList: {
-    paddingVertical: 10,
+    paddingVertical: 12,
   },
   avatarImage: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    marginRight: 10,
-    borderWidth: 2,
+    width: 65,
+    height: 65,
+    borderRadius: 32.5,
+    marginRight: 12,
+    borderWidth: 3,
     borderColor: '#037f8c',
   },
   modalCloseButton: {
-    marginTop: 20,
-    padding: 10,
+    marginTop: 25,
+    padding: 12,
     backgroundColor: '#037f8c',
-    borderRadius: 5,
+    borderRadius: 8,
     alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
   },
   modalCloseButtonText: {
     color: 'white',
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: 'bold',
+  },
+  
+  iconStyle: {
+    width: 24,
+    height: 24,
+    tintColor: '#037f8c',
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#037f8c',
+    marginLeft: 20,
+    marginTop: 15,
+    marginBottom: 10,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: '#e0e0e0',
+    marginVertical: 15,
+    marginHorizontal: 20,
   },
 });
 

@@ -14,7 +14,7 @@
     "app/**/*.tsx",
     "expo-env.d.ts",
     ".expo/types/**/*.ts"
-, "app/(Tabs)/HomeScreen.js", "app/SignUp.js", "app/SignIn.js", "app/index.js"  ],
+, "app/(Tabs)/HomeScreen.js", "app/SignUp.js", "app/SignIn.js", "app/index.js", "app/(Tabs)/students/Fee.js"  ],
   "exclude": [
     "node_modules",
     "babel.config.js",

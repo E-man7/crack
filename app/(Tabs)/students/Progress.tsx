@@ -621,7 +621,7 @@ const ProgressScreen = () => {
               style={{
                 marginVertical: 8,
                 borderRadius: 12,
-                paddingRight: 10,
+                paddingRight: 58,
               }}
             />
           )}

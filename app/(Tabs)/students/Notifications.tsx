@@ -14,6 +14,7 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import supabase from '../../supabase';
 import { format, isToday, isThisWeek, parseISO } from 'date-fns';
+import Toast from 'react-native-toast-message';
 
 const NotificationsScreen = () => {
   const [notifications, setNotifications] = useState([]);
@@ -22,16 +23,15 @@ const NotificationsScreen = () => {
   const [studentInfo, setStudentInfo] = useState(null);
   const [selectedNotification, setSelectedNotification] = useState(null);
   const [modalVisible, setModalVisible] = useState(false);
+  const [prevNotificationCount, setPrevNotificationCount] = useState(0);
 
   const fetchData = async () => {
     try {
       setRefreshing(true);
       
-      // Get the current authenticated user
       const { data: { user }, error: authError } = await supabase.auth.getUser();
       if (authError) throw authError;
 
-      // Fetch student data
       const { data: studentData, error: studentError } = await supabase
         .from('students')
         .select('*')
@@ -41,7 +41,6 @@ const NotificationsScreen = () => {
       if (studentError) throw studentError;
       setStudentInfo(studentData);
 
-      // Fetch notifications
       const { data: allNotifications, error: notificationError } = await supabase
         .from('notifications')
         .select('*')
@@ -49,7 +48,6 @@ const NotificationsScreen = () => {
 
       if (notificationError) throw notificationError;
 
-      // Filter notifications
       const filteredNotifications = allNotifications.filter((notification) => {
         if (notification.recipient_type === 'all') return true;
         if (notification.recipient_type === 'student' && notification.recipient_id === studentData.adm_no) return true;
@@ -57,18 +55,76 @@ const NotificationsScreen = () => {
         return false;
       });
 
+      if (filteredNotifications.length > prevNotificationCount && prevNotificationCount > 0) {
+        const newNotifications = filteredNotifications.slice(0, filteredNotifications.length - prevNotificationCount);
+        newNotifications.forEach(notification => {
+          showToastNotification(notification);
+        });
+      }
+
       setNotifications(filteredNotifications);
+      setPrevNotificationCount(filteredNotifications.length);
     } catch (error) {
       console.error('Error fetching data:', error);
+      Toast.show({
+        type: 'error',
+        text1: 'Error',
+        text2: 'Failed to load notifications',
+        position: 'top',
+      });
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
   };
 
+  const showToastNotification = (notification) => {
+    Toast.show({
+      type: notification.is_important ? 'error' : 'info',
+      text1: notification.title,
+      text2: notification.content,
+      position: 'top',
+      visibilityTime: 4000,
+      autoHide: true,
+      topOffset: 50,
+      onPress: () => {
+        setSelectedNotification(notification);
+        setModalVisible(true);
+        Toast.hide();
+      }
+    });
+  };
+
   useEffect(() => {
     fetchData();
-  }, []);
+    
+    const notificationsSubscription = supabase
+      .channel('notifications_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'notifications',
+        },
+        (payload) => {
+          const newNotification = payload.new;
+          if (
+            newNotification.recipient_type === 'all' ||
+            (newNotification.recipient_type === 'student' && newNotification.recipient_id === studentInfo?.adm_no) ||
+            (newNotification.recipient_type === 'class' && newNotification.recipient_id === studentInfo?.class)
+          ) {
+            setNotifications(prev => [newNotification, ...prev]);
+            showToastNotification(newNotification);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(notificationsSubscription);
+    };
+  }, [studentInfo]);
 
   const groupNotificationsByTime = (notifications) => {
     const grouped = {
@@ -218,7 +274,6 @@ const NotificationsScreen = () => {
         )}
       </ScrollView>
 
-      {/* Notification Detail Modal */}
       <Modal
         animationType="fade"
         transparent={true}
@@ -272,8 +327,40 @@ const NotificationsScreen = () => {
           </View>
         </Pressable>
       </Modal>
+
+      <Toast config={toastConfig} />
     </SafeAreaView>
   );
+};
+
+const toastConfig = {
+  success: ({ text1, text2, props, ...rest }) => (
+    <View style={styles.toastSuccess}>
+      <MaterialIcons name="check-circle" size={24} color="white" />
+      <View style={styles.toastContent}>
+        <Text style={styles.toastText1}>{text1}</Text>
+        <Text style={styles.toastText2}>{text2}</Text>
+      </View>
+    </View>
+  ),
+  error: ({ text1, text2, props, ...rest }) => (
+    <View style={styles.toastError}>
+      <MaterialIcons name="error" size={24} color="white" />
+      <View style={styles.toastContent}>
+        <Text style={styles.toastText1}>{text1}</Text>
+        <Text style={styles.toastText2}>{text2}</Text>
+      </View>
+    </View>
+  ),
+  info: ({ text1, text2, props, ...rest }) => (
+    <View style={styles.toastInfo}>
+      <MaterialIcons name="info" size={24} color="white" />
+      <View style={styles.toastContent}>
+        <Text style={styles.toastText1}>{text1}</Text>
+        <Text style={styles.toastText2}>{text2}</Text>
+      </View>
+    </View>
+  ),
 };
 
 const styles = StyleSheet.create({
@@ -485,6 +572,59 @@ const styles = StyleSheet.create({
   },
   modalBadge: {
     alignSelf: 'flex-start',
+  },
+  toastSuccess: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#4CAF50',
+    padding: 15,
+    borderRadius: 8,
+    width: '90%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  toastError: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F44336',
+    padding: 15,
+    borderRadius: 8,
+    width: '90%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  toastInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#2196F3',
+    padding: 15,
+    borderRadius: 8,
+    width: '90%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  toastContent: {
+    flex: 1,
+    marginLeft: 10,
+  },
+  toastText1: {
+    color: 'white',
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
+  toastText2: {
+    color: 'white',
+    fontSize: 14,
+    marginTop: 2,
   },
 });
 
