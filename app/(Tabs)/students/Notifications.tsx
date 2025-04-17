@@ -366,7 +366,7 @@ const toastConfig = {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#FAFAFA',
+    backgroundColor: '#f8f9fa',
   },
   container: {
     flex: 1,
@@ -415,6 +415,8 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: '700',
     color: '#333',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   notificationCount: {
     backgroundColor: '#037f8c',

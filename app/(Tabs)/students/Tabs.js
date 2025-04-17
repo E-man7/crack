@@ -1,5 +1,5 @@
 import React from 'react';
-import { StatusBar } from 'react-native'; // Import StatusBar
+import { StatusBar } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createStackNavigator } from '@react-navigation/stack';
 import { Ionicons } from '@expo/vector-icons';
@@ -8,7 +8,8 @@ import Progress from './Progress';
 import Assignments from './Assignments';
 import Fee from './Fee';
 import Others from './Others';
-import Notifications from './Notifications'; // Import Notifications screen
+import Notifications from './Notifications';
+import TripMonitorScreen from './TripMonitorScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
@@ -16,7 +17,6 @@ const Stack = createStackNavigator();
 const TabNavigator = () => {
   return (
     <>
-      {/* Add StatusBar here */}
       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
       <Tab.Navigator
         screenOptions={({ route }) => ({
@@ -40,10 +40,10 @@ const TabNavigator = () => {
           },
           tabBarStyle: {
             height: 60,
-            justifyContent: 'center', // Align items in the center of the tab bar
+            justifyContent: 'center',
           },
-          tabBarLabelPosition: 'below-icon', // Ensures the label is positioned correctly below the icon
-          headerShown: false, // Hide the header for all screens in the TabNavigator
+          tabBarLabelPosition: 'below-icon',
+          headerShown: false,
         })}
       >
         <Tab.Screen name="Home" component={Home} />
@@ -63,8 +63,18 @@ const Tabs = () => {
       <Stack.Screen
         name="Main"
         component={TabNavigator}
-        options={{
-          headerShown: false, // Remove the header entirely for the stack
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen 
+        name="TripMonitor" 
+        component={TripMonitorScreen} 
+        options={{ 
+          title: 'Trip Monitor',
+          headerTitleAlign: 'center', // This centers the title
+          headerBackTitle: 'Back',
+          headerTitleStyle: {
+            fontWeight: 'bold', // Optional: makes the title bold
+          },
         }}
       />
     </Stack.Navigator>

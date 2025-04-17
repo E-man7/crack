@@ -567,7 +567,7 @@ const styles = StyleSheet.create({
   },
   scheduleSection: {
     backgroundColor: '#0A71F2',
-    padding: 16,
+    padding: 20, // Increased padding
     borderRadius: 8,
     marginBottom: 16,
     shadowColor: '#000',
@@ -575,6 +575,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
+    minHeight: 300, // Added minimum height
   },
   analysisSection: {
     backgroundColor: '#0A71F2',
@@ -589,7 +590,6 @@ const styles = StyleSheet.create({
   },
   header: {
     fontSize: 20,
-    fontWeight: 'bold',
     marginBottom: 12,
     color: '#FFF',
   },
@@ -618,21 +618,19 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginBottom: 6,
     color: '#FFF',
-    fontWeight: '600',
   },
   value: {
-    fontWeight: 'normal',
     color: '#FFF',
   },
   lessonItem: {
     backgroundColor: 'rgba(255,255,255,0.9)',
-    padding: 12,
+    padding: 16, // Increased padding
     borderRadius: 8,
-    marginBottom: 8,
+    marginBottom: 12, // Increased margin
+    minHeight: 80, // Added minimum height
   },
   lessonDay: {
     fontSize: 16,
-    fontWeight: 'bold',
     color: '#0A71F2',
     marginBottom: 4,
   },
@@ -661,10 +659,6 @@ const styles = StyleSheet.create({
     color: '#FFF',
     marginRight: 10,
     fontSize: 16,
-    fontWeight: '600',
-    textShadowColor: 'rgba(0,0,0,0.3)',
-    textShadowOffset: {width: 1, height: 1},
-    textShadowRadius: 2,
   },
   subjectPicker: {
     flex: 1,
@@ -687,10 +681,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginTop: 12,
     textAlign: 'center',
-    fontWeight: '500',
-    textShadowColor: 'rgba(0,0,0,0.3)',
-    textShadowOffset: {width: 1, height: 1},
-    textShadowRadius: 2,
   },
   notificationCard: {
     backgroundColor: '#FFF',
@@ -705,7 +695,6 @@ const styles = StyleSheet.create({
   },
   notificationCardTitle: {
     fontSize: 18,
-    fontWeight: 'bold',
     marginBottom: 8,
     color: '#0A71F2',
   },
@@ -731,7 +720,6 @@ const styles = StyleSheet.create({
   },
   modalTitle: {
     fontSize: 18,
-    fontWeight: 'bold',
     marginBottom: 20,
     textAlign: 'center',
     color: '#037f8c',
@@ -751,7 +739,6 @@ const styles = StyleSheet.create({
     marginTop: 15,
     marginBottom: 10,
     fontSize: 16,
-    fontWeight: 'bold',
     color: '#037f8c',
   },
   avatarList: {
@@ -775,8 +762,6 @@ const styles = StyleSheet.create({
   modalCloseButtonText: {
     color: 'white',
     fontSize: 16,
-    fontWeight: 'bold',
   },
 });
-
 export default ProfileScreen;
