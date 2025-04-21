@@ -240,6 +240,10 @@ const AssignmentScreen = () => {
 
   return (
     <View style={styles.container}>
+      <View style={styles.headerContainer}>
+        <Text style={styles.headerText}>Assignments</Text>
+      </View>
+      
       <FlatList
         data={assignments}
         renderItem={({ item }) => (
@@ -409,6 +413,17 @@ const styles = StyleSheet.create({
   emptyText: {
     fontSize: 16,
     color: '#666',
+  },
+  headerContainer: {
+    padding: 16,
+    backgroundColor: '#f5f5f5',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerText: {
+    fontSize: 24,
+    fontWeight: '900',
+    color: '#2C3E50',
   },
   assignmentCard: {
     backgroundColor: '#fff',

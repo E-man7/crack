@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { Text, View, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as Linking from 'expo-linking';
-import supabase from '../supabase';
+import supabase from './supabase';
 
 export default function NotFound() {
   const router = useRouter();

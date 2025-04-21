@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { supabase } from '../supabase';
+import { supabase } from '../supabase'; // Make sure this path is correct
 
 const UserContext = createContext();
 
@@ -18,26 +18,30 @@ export const UserProvider = ({ children }) => {
     setError(null);
 
     try {
+      // First verify supabase is initialized
+      if (!supabase) {
+        throw new Error('Supabase client is not initialized');
+      }
+
       // Get authenticated user
-      const { data: userSession, error: sessionError } = await supabase.auth.getUser();
+      const { data: { user: authUser }, error: sessionError } = await supabase.auth.getUser();
       if (sessionError) throw sessionError;
 
-      console.log('Authenticated User:', userSession); // ✅ Log user session
+      console.log('Authenticated User:', authUser);
 
-      const userId = userSession?.user?.id;
-      if (!userId) throw new Error('User not authenticated');
+      if (!authUser) throw new Error('User not authenticated');
 
       // Fetch user details
       const { data: userData, error: userError } = await supabase
         .from('users')
         .select('*')
-        .eq('id', userId)
+        .eq('id', authUser.id)
         .maybeSingle();
 
       if (userError) throw userError;
       if (!userData) throw new Error('User not found in database');
 
-      console.log('User Data:', userData); // ✅ Log fetched user data
+      console.log('User Data:', userData);
       setUser(userData);
 
       // Fetch teacher details using TSC number
@@ -50,7 +54,7 @@ export const UserProvider = ({ children }) => {
 
         if (teacherError) throw teacherError;
 
-        console.log('Teacher Data:', teacherData); // ✅ Log fetched teacher data
+        console.log('Teacher Data:', teacherData);
         setTeacher(teacherData || null);
       } else {
         setTeacher(null);

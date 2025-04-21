@@ -760,8 +760,9 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: 24,
-    fontWeight: '700',
+    fontWeight: '900',
     color: '#2C3E50',
+    marginLeft: 145,
   },
   headerActions: {
     flexDirection: 'row',

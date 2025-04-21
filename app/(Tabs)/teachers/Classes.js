@@ -4,7 +4,7 @@ import {
   ScrollView, TextInput, Dimensions, Image, Modal, Alert
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
-import { MaterialIcons } from '@expo/vector-icons';
+import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
@@ -19,9 +19,8 @@ const ClassesTab = () => {
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [studentDetails, setStudentDetails] = useState({
     attendance: [],
-    scores: [],
-    grades: [],
-    reports: [],
+    scores: [], 
+    reports: [], 
     fees: []
   });
   const [displayOption, setDisplayOption] = useState('progress');
@@ -36,6 +35,7 @@ const ClassesTab = () => {
   const [absentReasons, setAbsentReasons] = useState({});
   const [isMarkingAttendance, setIsMarkingAttendance] = useState(false);
   const [attendanceSession, setAttendanceSession] = useState('Morning');
+  const [attendanceFilter, setAttendanceFilter] = useState('today');
 
   useEffect(() => {
     fetchClasses();
@@ -74,10 +74,8 @@ const ClassesTab = () => {
 
       if (error) throw error;
 
-      // Get unique classes
       const uniqueClasses = [...new Set(data.map(item => item.class))];
       
-      // If teacher is a class teacher, move their class to the front
       if (teacherClass) {
         const teacherClassIndex = uniqueClasses.indexOf(teacherClass);
         if (teacherClassIndex > -1) {
@@ -105,21 +103,18 @@ const ClassesTab = () => {
 
       if (error) throw error;
 
-      // Randomize the order of students for display
       const randomizedStudents = [...data].sort(() => Math.random() - 0.5);
       setStudents(randomizedStudents);
 
-      // Initialize attendance records
       const initialRecords = {};
       const initialReasons = {};
       randomizedStudents.forEach(student => {
-        initialRecords[student.adm_no] = 'present'; // default to present
+        initialRecords[student.adm_no] = 'present';
         initialReasons[student.adm_no] = '';
       });
       setAttendanceRecords(initialRecords);
       setAbsentReasons(initialReasons);
 
-      // Select a random student by default
       if (randomizedStudents.length > 0) {
         const randomIndex = Math.floor(Math.random() * randomizedStudents.length);
         setSelectedStudent(randomizedStudents[randomIndex]);
@@ -132,48 +127,75 @@ const ClassesTab = () => {
     }
   };
 
-  const fetchSubjectNames = async (subjectIds) => {
-    const { data, error } = await supabase
-      .from('subjects')
-      .select('id, subject_name')
-      .in('id', subjectIds);
-
-    if (error) {
-      console.error('Error fetching subjects:', error);
-      return {};
-    }
-
-    return data.reduce((acc, subject) => {
-      acc[subject.id] = subject.subject_name;
-      return acc;
-    }, {});
-  };
-
   const fetchStudentDetails = async (admNo) => {
     setIsLoading(true);
     try {
+      const now = new Date();
+      let startDate = new Date();
+      
+      switch (attendanceFilter) {
+        case 'week':
+          startDate.setDate(now.getDate() - 7);
+          break;
+        case 'month':
+          startDate.setMonth(now.getMonth() - 1);
+          break;
+        case 'threeMonths':
+          startDate.setMonth(now.getMonth() - 3);
+          break;
+        default:
+          startDate = now;
+      }
+  
+      const fetchSubjectNames = async (subjectIds) => {
+        if (!subjectIds || subjectIds.length === 0) return {};
+        
+        const { data, error } = await supabase
+          .from('subjects')
+          .select('id, subject_name')
+          .in('id', subjectIds);
+      
+        if (error) {
+          console.error('Error fetching subjects:', error);
+          return {};
+        }
+      
+        return data.reduce((acc, subject) => {
+          acc[subject.id] = subject.subject_name;
+          return acc;
+        }, {});
+      };
+      
+      const startDateStr = startDate.toISOString().split('T')[0];
+      const endDateStr = now.toISOString().split('T')[0];
+  
+      // Fetch attendance data
       const { data: attendanceData } = await supabase
         .from('attendance')
         .select('*')
         .eq('adm_no', admNo)
-        .eq('term', selectedTerm);
-
-      const { data: scoresData } = await supabase
+        .gte('date', startDateStr)
+        .lte('date', endDateStr)
+        .order('date', { ascending: false });
+  
+      // Fetch scores data with subject names (no term filter since it's not in the schema)
+      const { data: scoresData, error: scoresError } = await supabase
         .from('scores')
-        .select('*')
+        .select(`
+          *,
+          subjects:subject_id (subject_name)
+        `)
         .eq('adm_no', admNo);
 
-      const { data: gradesData } = await supabase
-        .from('grades')
-        .select('*')
-        .eq('adm_no', admNo);
-
+      if (scoresError) throw scoresError;
+  
+      // Fetch reports data with term filter (using period column)
       const { data: reportsData } = await supabase
         .from('reports')
         .select('*')
         .eq('adm_no', admNo)
         .eq('period', selectedTerm);
-
+  
       // Only fetch fees if the teacher is the class teacher
       let feesData = [];
       if (teacherClass === selectedClass) {
@@ -183,14 +205,10 @@ const ClassesTab = () => {
           .eq('adm_no', admNo);
         feesData = fees || [];
       }
-
-      const subjectIds = [...new Set([...scoresData.map(s => s.subject_id), ...gradesData.map(g => g.subject_id)])];
-      const subjectNames = await fetchSubjectNames(subjectIds);
-
+  
       setStudentDetails({
         attendance: attendanceData || [],
-        scores: scoresData.map(s => ({ ...s, subject_name: subjectNames[s.subject_id] || 'Unknown' })) || [],
-        grades: gradesData.map(g => ({ ...g, subject_name: subjectNames[g.subject_id] || 'Unknown' })) || [],
+        scores: scoresData || [],
         reports: reportsData || [],
         fees: feesData
       });
@@ -285,6 +303,25 @@ const ClassesTab = () => {
       const dateStr = attendanceDate.toISOString().split('T')[0];
       const month = attendanceDate.toLocaleString('default', { month: 'long' });
       const year = attendanceDate.getFullYear();
+      
+      // Check for existing attendance for each student
+      const attendanceChecks = await Promise.all(
+        students.map(async student => {
+          const { data, error } = await supabase
+            .from('attendance')
+            .select('*')
+            .eq('adm_no', student.adm_no)
+            .eq('date', dateStr)
+            .eq('session', attendanceSession);
+          
+          if (error) throw error;
+          return data && data.length > 0;
+        })
+      );
+      
+      if (attendanceChecks.some(check => check)) {
+        throw new Error('Attendance already marked for this session on selected date');
+      }
   
       const recordsToInsert = students.map(student => ({
         adm_no: student.adm_no,
@@ -301,14 +338,6 @@ const ClassesTab = () => {
         notes: '',
         modified_at: new Date().toISOString()
       }));
-  
-      const { error: deleteError } = await supabase
-        .from('attendance')
-        .delete()
-        .eq('date', dateStr)
-        .in('adm_no', students.map(s => s.adm_no));
-  
-      if (deleteError) throw deleteError;
   
       const { error } = await supabase
         .from('attendance')
@@ -339,7 +368,6 @@ const ClassesTab = () => {
       const dateStr = attendanceDate.toISOString().split('T')[0];
       const formattedDate = attendanceDate.toLocaleDateString();
       
-      // Create CSV content with date included
       let csvContent = 'Admission No,Name,Status,Date,Class,Session\n';
       
       students.forEach(student => {
@@ -349,7 +377,6 @@ const ClassesTab = () => {
         csvContent += `${student.adm_no},${student.name},${status},${formattedDate},${selectedClass},${attendanceSession}\n`;
       });
 
-      // Create file with date in filename
       const fileUri = FileSystem.documentDirectory + `attendance_${selectedClass}_${dateStr}.csv`;
       await FileSystem.writeAsStringAsync(fileUri, csvContent, {
         encoding: FileSystem.EncodingType.UTF8,
@@ -365,6 +392,144 @@ const ClassesTab = () => {
       Alert.alert('Error', 'Failed to download attendance sheet');
     }
   };
+
+  const renderClassItem = ({ item }) => (
+    <TouchableOpacity
+      style={[
+        styles.classItem,
+        selectedClass === item && styles.selectedItem,
+        teacherClass === item && styles.teacherClassItem
+      ]}
+      onPress={() => {
+        setSelectedClass(item);
+        fetchStudentsByClass(item);
+        setSelectedStudent(null);
+      }}
+    >
+      <MaterialCommunityIcons 
+        name={selectedClass === item ? 'account-group' : 'account-group-outline'} 
+        size={24} 
+        color={teacherClass === item ? '#fff' : '#5D3FD3'} 
+      />
+      <Text style={[
+        styles.classText,
+        teacherClass === item && styles.teacherClassText
+      ]}>
+        {item}
+      </Text>
+    </TouchableOpacity>
+  );
+
+  const renderAttendanceSection = () => (
+    <View style={styles.card}>
+      <View style={styles.cardHeader}>
+        <MaterialIcons name="calendar-today" size={20} color="#5D3FD3" />
+        <Text style={styles.cardTitle}>Attendance</Text>
+        <Picker
+          selectedValue={attendanceFilter}
+          style={styles.smallPicker}
+          onValueChange={(itemValue) => {
+            setAttendanceFilter(itemValue);
+            fetchStudentDetails(selectedStudent.adm_no);
+          }}
+          dropdownIconColor="#5D3FD3"
+        >
+          <Picker.Item label="Today" value="today" />
+          <Picker.Item label="Last Week" value="week" />
+          <Picker.Item label="Last Month" value="month" />
+          <Picker.Item label="Last 3 Months" value="threeMonths" />
+        </Picker>
+      </View>
+      {studentDetails.attendance.length > 0 ? (
+        <View style={styles.attendanceTable}>
+          <View style={styles.attendanceTableHeader}>
+            <Text style={styles.attendanceTableHeaderText}>Date</Text>
+            <Text style={styles.attendanceTableHeaderText}>Session</Text>
+            <Text style={styles.attendanceTableHeaderText}>Status</Text>
+          </View>
+          {studentDetails.attendance.map((att, index) => (
+            <View key={index} style={styles.attendanceTableRow}>
+              <Text style={styles.attendanceTableCell}>
+                {new Date(att.date).toLocaleDateString()}
+              </Text>
+              <Text style={styles.attendanceTableCell}>{att.session}</Text>
+              <View style={[
+                styles.statusBadge,
+                { 
+                  backgroundColor: 
+                    att.status === 'present' ? '#4CAF50' : 
+                    att.status === 'absent' ? '#F44336' :
+                    att.status === 'late' ? '#FFC107' : '#9C27B0'
+                }
+              ]}>
+                <Text style={styles.statusText}>{att.status}</Text>
+              </View>
+            </View>
+          ))}
+        </View>
+      ) : (
+        <Text style={styles.noDataText}>No attendance records found</Text>
+      )}
+    </View>
+  );
+
+  const renderReportsSection = () => (
+    <View style={styles.card}>
+      <View style={styles.cardHeader}>
+        <MaterialIcons name="description" size={20} color="#5D3FD3" />
+        <Text style={styles.cardTitle}>Reports</Text>
+      </View>
+      {studentDetails.reports.length > 0 ? (
+        studentDetails.reports.map((report, index) => (
+          <View key={index} style={styles.reportItem}>
+            <Text style={styles.reportType}>{report.report_type}</Text>
+            <Text style={styles.reportContent}>{report.content}</Text>
+            <Text style={styles.reportPeriod}>Term: {report.period}</Text>
+            <Text style={styles.reportDate}>
+              {new Date(report.created_at).toLocaleDateString()}
+            </Text>
+          </View>
+        ))
+      ) : (
+        <Text style={styles.noDataText}>No reports found</Text>
+      )}
+    </View>
+  );
+
+  const renderAcademicPerformance = () => (
+    <View style={styles.card}>
+      <View style={styles.cardHeader}>
+        <MaterialIcons name="assessment" size={20} color="#5D3FD3" />
+        <Text style={styles.cardTitle}>Academic Performance</Text>
+      </View>
+      {studentDetails.scores.length > 0 ? (
+        <View style={styles.table}>
+          <View style={styles.tableHeader}>
+            <Text style={styles.tableHeaderText}>Subject</Text>
+            <Text style={styles.tableHeaderText}>Score</Text>
+            <Text style={styles.tableHeaderText}>Grade</Text>
+          </View>
+          {studentDetails.scores.map((score, index) => {
+            const grade = getGrade(score.score);
+            return (
+              <View key={index} style={styles.tableRow}>
+                <Text style={styles.tableCell}>{score.subjects.subject_name}</Text>
+                <Text style={styles.tableCell}>{score.score}</Text>
+                <View style={[
+                  styles.gradeBadge,
+                  { backgroundColor: getGradeColor(grade) }
+                ]}>
+                  <Text style={styles.gradeText}>{grade}</Text>
+                </View>
+              </View>
+            );
+          })}
+        </View>
+      ) : (
+        <Text style={styles.noDataText}>No academic records found</Text>
+      )}
+    </View>
+  );
 
   return (
     <SafeAreaView style={styles.container}>
@@ -387,32 +552,7 @@ const ClassesTab = () => {
             showsHorizontalScrollIndicator={false}
             data={classes}
             keyExtractor={(item) => item}
-            renderItem={({ item }) => (
-              <TouchableOpacity
-                style={[
-                  styles.classItem,
-                  selectedClass === item && styles.selectedItem,
-                  teacherClass === item && styles.teacherClassItem
-                ]}
-                onPress={() => {
-                  setSelectedClass(item);
-                  fetchStudentsByClass(item);
-                  setSelectedStudent(null);
-                }}
-              >
-                <MaterialIcons 
-                  name="class" 
-                  size={24} 
-                  color={teacherClass === item ? '#fff' : '#5D3FD3'} 
-                />
-                <Text style={[
-                  styles.classText,
-                  teacherClass === item && styles.teacherClassText
-                ]}>
-                  {item}
-                </Text>
-              </TouchableOpacity>
-            )}
+            renderItem={renderClassItem}
             contentContainerStyle={styles.horizontalList}
           />
         </View>
@@ -544,93 +684,9 @@ const ClassesTab = () => {
                 </Picker>
               </View>
 
-              <View style={styles.card}>
-                <View style={styles.cardHeader}>
-                  <MaterialIcons name="calendar-today" size={20} color="#5D3FD3" />
-                  <Text style={styles.cardTitle}>Attendance</Text>
-                </View>
-                {studentDetails.attendance.length > 0 ? (
-                  <View style={styles.attendanceTable}>
-                    <View style={styles.attendanceTableHeader}>
-                      <Text style={styles.attendanceTableHeaderText}>Date</Text>
-                      <Text style={styles.attendanceTableHeaderText}>Status</Text>
-                      <Text style={styles.attendanceTableHeaderText}>Session</Text>
-                    </View>
-                    {studentDetails.attendance.map((att, index) => (
-                      <View key={index} style={styles.attendanceTableRow}>
-                        <Text style={styles.attendanceTableCell}>
-                          {new Date(att.date).toLocaleDateString()}
-                        </Text>
-                        <View style={[
-                          styles.statusBadge,
-                          { 
-                            backgroundColor: 
-                              att.status === 'present' ? '#4CAF50' : 
-                              att.status === 'absent' ? '#F44336' :
-                              att.status === 'late' ? '#FFC107' : '#9C27B0'
-                          }
-                        ]}>
-                          <Text style={styles.statusText}>{att.status}</Text>
-                        </View>
-                        <Text style={styles.attendanceTableCell}>{att.session}</Text>
-                      </View>
-                    ))}
-                  </View>
-                ) : (
-                  <Text style={styles.noDataText}>No attendance records found</Text>
-                )}
-              </View>
-
-              <View style={styles.card}>
-                <View style={styles.cardHeader}>
-                  <MaterialIcons name="assessment" size={20} color="#5D3FD3" />
-                  <Text style={styles.cardTitle}>Academic Performance</Text>
-                </View>
-                {studentDetails.scores.length > 0 ? (
-                  <View style={styles.table}>
-                    <View style={styles.tableHeader}>
-                      <Text style={styles.tableHeaderText}>Subject</Text>
-                      <Text style={styles.tableHeaderText}>Score</Text>
-                      <Text style={styles.tableHeaderText}>Grade</Text>
-                    </View>
-                    {studentDetails.scores.map((score, index) => {
-                      const grade = getGrade(score.score);
-                      return (
-                        <View key={index} style={styles.tableRow}>
-                          <Text style={styles.tableCell}>{score.subject_name}</Text>
-                          <Text style={styles.tableCell}>{score.score}</Text>
-                          <View style={[
-                            styles.gradeBadge,
-                            { backgroundColor: getGradeColor(grade) }
-                          ]}>
-                            <Text style={styles.gradeText}>{grade}</Text>
-                          </View>
-                        </View>
-                      );
-                    })}
-                  </View>
-                ) : (
-                  <Text style={styles.noDataText}>No academic records found</Text>
-                )}
-              </View>
-
-              <View style={styles.card}>
-                <View style={styles.cardHeader}>
-                  <MaterialIcons name="description" size={20} color="#5D3FD3" />
-                  <Text style={styles.cardTitle}>Reports</Text>
-                </View>
-                {studentDetails.reports.length > 0 ? (
-                  studentDetails.reports.map((report, index) => (
-                    <View key={index} style={styles.reportItem}>
-                      <Text style={styles.reportType}>{report.report_type}</Text>
-                      <Text style={styles.reportScore}>Score: {report.score}</Text>
-                      <Text style={styles.reportPeriod}>Term: {report.period}</Text>
-                    </View>
-                  ))
-                ) : (
-                  <Text style={styles.noDataText}>No reports found</Text>
-                )}
-              </View>
+              {renderAttendanceSection()}
+              {renderAcademicPerformance()}
+              {renderReportsSection()}
             </>
           )}
 
@@ -684,7 +740,6 @@ const ClassesTab = () => {
         </ScrollView>
       )}
 
-      {/* Attendance Modal */}
       <Modal
         visible={showAttendanceModal}
         animationType="slide"
@@ -1296,6 +1351,11 @@ const styles = StyleSheet.create({
     borderColor: '#e9ecef',
     borderRadius: 8,
     backgroundColor: '#f8f9fa',
+  },
+  smallPicker: {
+    width: 120,
+    height: 30,
+    fontSize: 12,
   },
   studentInfoContainer: {
     flexDirection: 'row',

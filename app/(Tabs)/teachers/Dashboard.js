@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, SafeAreaView, Image, FlatList, TouchableOpacity, Modal, Button, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, SafeAreaView, Image, FlatList, TouchableOpacity, Modal, ActivityIndicator } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { LineChart } from 'react-native-chart-kit';
-import supabase from '../../supabase';
+import supabase from '../../supabase'; // Verify this path is correct
 import ImageHandler from '../../ImageHandler';
 import { Picker } from '@react-native-picker/picker';
 import Icon from 'react-native-vector-icons/MaterialIcons';
@@ -30,6 +30,11 @@ const ProfileScreen = () => {
   useEffect(() => {
     const fetchUserSession = async () => {
       try {
+        // First, verify supabase is initialized
+        if (!supabase) {
+          throw new Error('Supabase client is not initialized');
+        }
+
         const { data: { user }, error } = await supabase.auth.getUser();
         if (error) throw error;
 
@@ -37,11 +42,10 @@ const ProfileScreen = () => {
           setTscNumber(user.user_metadata?.tsc_number);
           setAvatarUrl(user.user_metadata?.avatar_url);
           setUserType(user.user_metadata?.user_type || 'teacher');
-          console.log('User session loaded:', user);
         }
       } catch (error) {
         console.error('Error fetching user session:', error);
-        Alert.alert('Error', 'Failed to load user session');
+        Alert.alert('Error', 'Failed to load user session. Please try again later.');
       }
     };
 
@@ -421,9 +425,13 @@ const ProfileScreen = () => {
 
   return (
     <SafeAreaView style={styles.container}>
+      {/* Header Section */}
+      <View style={styles.headerContainer}>
+        <Text style={styles.dashboardHeader}>Dashboard</Text>
+      </View>
+
       {/* Profile Section (non-scrollable) */}
       <View style={styles.profileSection}>  
-        <Text style={styles.header}>Profile</Text>
         {loading ? (
           <ActivityIndicator size="small" color="#FFF" />
         ) : (
@@ -550,6 +558,24 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F5F5F5',
   },
+  headerContainer: {
+    backgroundColor: '#F5F5F5',
+    paddingVertical: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderBottomWidth: 15,
+    borderBottomColor: 'rgba(44, 62, 80, 0.1)',
+  },
+  dashboardHeader: {
+    fontSize: 24,
+    color: '#2C3E50',
+    fontFamily: 'SFProDisplay-Bold',
+    fontWeight: 'bold',
+    textShadowColor: 'rgba(0,0,0,0.05)',
+    textShadowOffset: {width: 0, height: 1},
+    textShadowRadius: 2,
+    letterSpacing: 0.5,
+  },
   scrollContent: {
     padding: 16,
     paddingBottom: 32,
@@ -557,41 +583,51 @@ const styles = StyleSheet.create({
   profileSection: {
     backgroundColor: '#0A71F2',
     padding: 16,
-    borderRadius: 8,
     marginBottom: 16,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 5,
+    borderRadius: 12, 
   },
   scheduleSection: {
     backgroundColor: '#0A71F2',
-    padding: 20, // Increased padding
-    borderRadius: 8,
+    padding: 20,
+    borderRadius: 12,
     marginBottom: 16,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-    minHeight: 300, // Added minimum height
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 5,
+    minHeight: 300,
+    borderLeftWidth: 4,
+    borderLeftColor: 'rgba(255,255,255,0.3)',
   },
   analysisSection: {
     backgroundColor: '#0A71F2',
     padding: 16,
-    borderRadius: 8,
+    borderRadius: 12,
     marginBottom: 16,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 5,
+    borderTopWidth: 4,
+    borderTopColor: 'rgba(255,255,255,0.3)',
   },
   header: {
     fontSize: 20,
     marginBottom: 12,
     color: '#FFF',
+    fontFamily: 'SFProDisplay-Semibold',
+    letterSpacing: 0.3,
+    position: 'relative',
+    paddingBottom: 8,
+    borderBottomWidth: 2,
+    borderBottomColor: 'rgba(255,255,255,0.3)',
   },
   profileContent: {
     flexDirection: 'row',
@@ -599,17 +635,22 @@ const styles = StyleSheet.create({
   },
   imageContainer: {
     marginRight: 16,
+    position: 'relative',
   },
   profileImage: {
     width: 100,
     height: 100,
     borderRadius: 50,
     backgroundColor: '#DDD',
+    borderWidth: 3,
+    borderColor: 'rgba(255,255,255,0.5)',
   },
   uploadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: 'rgba(0,0,0,0.5)',
+    borderRadius: 50,
   },
   infoContainer: {
     flex: 1,
@@ -618,30 +659,49 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginBottom: 6,
     color: '#FFF',
+    fontFamily: 'SFProDisplay-Regular',
+    opacity: 0.9,
   },
   value: {
     color: '#FFF',
+    fontFamily: 'SFProDisplay-Regular',
+    fontSize: 16,
+    fontWeight: '600',
   },
   lessonItem: {
-    backgroundColor: 'rgba(255,255,255,0.9)',
-    padding: 16, // Increased padding
+    backgroundColor: 'rgba(255,255,255,0.95)',
+    padding: 16,
     borderRadius: 8,
-    marginBottom: 12, // Increased margin
-    minHeight: 80, // Added minimum height
+    marginBottom: 12,
+    minHeight: 80,
+    borderLeftWidth: 4,
+    borderLeftColor: '#0A71F2',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
   },
   lessonDay: {
     fontSize: 16,
     color: '#0A71F2',
     marginBottom: 4,
+    fontFamily: 'SFProDisplay-Semibold',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   lessonSubject: {
     fontSize: 14,
     color: '#333',
     marginBottom: 4,
+    fontFamily: 'SFProDisplay-Regular',
+    fontWeight: '600',
   },
   lessonTime: {
     fontSize: 14,
     color: '#666',
+    fontFamily: 'SFProDisplay-Regular',
+    fontStyle: 'italic',
   },
   scheduleList: {
     paddingBottom: 8,
@@ -650,15 +710,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 16,
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    borderRadius: 10,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.3)',
   },
   pickerLabel: {
     color: '#FFF',
     marginRight: 10,
     fontSize: 16,
+    fontFamily: 'SFProDisplay-Regular',
+    opacity: 0.9,
   },
   subjectPicker: {
     flex: 1,
@@ -666,102 +730,164 @@ const styles = StyleSheet.create({
     color: '#FFF',
     backgroundColor: 'transparent',
     borderRadius: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.3)',
+    fontFamily: 'SFProDisplay-Regular',
   },
   chartContainer: {
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.15)',
+    backgroundColor: 'rgba(255,255,255,0.2)',
     borderRadius: 12,
-    padding: 12,
+    padding: 16,
     marginTop: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
   },
   chartNote: {
     color: '#FFF',
     fontSize: 14,
     marginTop: 12,
     textAlign: 'center',
+    fontFamily: 'SFProDisplay-Regular',
+    lineHeight: 20,
   },
   notificationCard: {
     backgroundColor: '#FFF',
     padding: 16,
-    borderRadius: 8,
+    borderRadius: 12,
     marginBottom: 16,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.1,
-    shadowRadius: 4,
+    shadowRadius: 6,
     elevation: 3,
+    borderTopWidth: 3,
+    borderTopColor: '#0A71F2',
   },
   notificationCardTitle: {
     fontSize: 18,
     marginBottom: 8,
     color: '#0A71F2',
+    fontFamily: 'SFProDisplay-Semibold',
+    letterSpacing: 0.3,
   },
   notificationCardText: {
     fontSize: 14,
     color: '#555',
+    fontFamily: 'SFProDisplay-Regular',
+    lineHeight: 20,
   },
   errorText: {
     color: '#FFCCCB',
     fontSize: 14,
+    fontFamily: 'SFProDisplay-Regular',
+    textAlign: 'center',
+    paddingVertical: 8,
   },
   modalContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: 'rgba(0,0,0,0.7)',
   },
   modalContent: {
     width: '90%',
     backgroundColor: 'white',
-    borderRadius: 10,
+    borderRadius: 16,
     padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    elevation: 10,
   },
   modalTitle: {
-    fontSize: 18,
+    fontSize: 20,
     marginBottom: 20,
     textAlign: 'center',
-    color: '#037f8c',
+    color: '#0A71F2',
+    fontFamily: 'SFProDisplay-Semibold',
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F5F5F5',
   },
   modalOption: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 15,
     borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
+    borderBottomColor: '#f0f0f0',
   },
   modalOptionText: {
     marginLeft: 15,
     fontSize: 16,
+    fontFamily: 'SFProDisplay-Regular',
+    color: '#2C3E50',
   },
   avatarSectionTitle: {
     marginTop: 15,
     marginBottom: 10,
     fontSize: 16,
-    color: '#037f8c',
+    color: '#0A71F2',
+    fontFamily: 'SFProDisplay-Semibold',
+    textAlign: 'center',
   },
   avatarList: {
     paddingVertical: 10,
   },
   avatarImage: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    marginRight: 10,
-    borderWidth: 2,
-    borderColor: '#037f8c',
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    marginRight: 15,
+    borderWidth: 3,
+    borderColor: '#0A71F2',
   },
   modalCloseButton: {
     marginTop: 20,
-    padding: 10,
-    backgroundColor: '#037f8c',
-    borderRadius: 5,
+    padding: 12,
+    backgroundColor: '#0A71F2',
+    borderRadius: 8,
     alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
   },
   modalCloseButtonText: {
     color: 'white',
     fontSize: 16,
+    fontFamily: 'SFProDisplay-Semibold',
+    letterSpacing: 0.5,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  seeAllText: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 14,
+    fontFamily: 'SFProDisplay-Regular',
+  },
+  progressContainer: {
+    height: 6,
+    backgroundColor: 'rgba(255,255,255,0.3)',
+    borderRadius: 3,
+    marginTop: 8,
+    overflow: 'hidden',
+  },
+  progressBar: {
+    height: '100%',
+    backgroundColor: '#FFF',
+    borderRadius: 3,
+  },
+  iconContainer: {
+    padding: 8,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    borderRadius: 20,
+    marginRight: 12,
   },
 });
+
 export default ProfileScreen;

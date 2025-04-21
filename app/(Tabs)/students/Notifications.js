@@ -231,9 +231,11 @@ const NotificationsScreen = () => {
       >
         <View style={styles.headerContainer}>
           <Text style={styles.header}>Notifications</Text>
-          <View style={styles.notificationCount}>
-            <Text style={styles.notificationCountText}>{notifications.length}</Text>
-          </View>
+          {notifications.length > 0 && (
+            <View style={styles.notificationCount}>
+              <Text style={styles.notificationCountText}>{notifications.length}</Text>
+            </View>
+          )}
         </View>
 
         {notifications.length === 0 ? (
@@ -407,14 +409,15 @@ const styles = StyleSheet.create({
   headerContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'center', // Changed from 'space-between' to 'center'
     marginTop: 24,
     marginBottom: 16,
+    position: 'relative', // Add this for absolute positioning of the count
   },
   header: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: '#333',
+    fontSize: 24,
+    fontWeight: '900',
+    color: '#2C3E50',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -425,6 +428,8 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     justifyContent: 'center',
     alignItems: 'center',
+    position: 'absolute', // Add absolute positioning
+    right: 0, // Position on the right
   },
   notificationCountText: {
     color: 'white',
