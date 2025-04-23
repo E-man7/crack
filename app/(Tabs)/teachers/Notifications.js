@@ -180,12 +180,12 @@ const NotificationsScreen = () => {
       showToast('Please fill in the title and content');
       return;
     }
-
+  
     if (recipientType !== 'all' && !recipientId.trim() && !studentAdmNo.trim() && recipientType !== 'class-teacher') {
       showToast(`Please provide a ${recipientType === 'class' ? 'Class' : 'Admission No'}`);
       return;
     }
-
+  
     setLoading(true);
     try {
       if (recipientType === 'student') {
@@ -194,43 +194,37 @@ const NotificationsScreen = () => {
           .select('class')
           .eq('adm_no', studentAdmNo)
           .single();
-
+  
         if (studentError || !studentData) {
           throw new Error('Student not found');
         }
-
+  
         if (teacherClass && studentData.class !== teacherClass) {
           throw new Error('Student is not in your class');
         }
       }
-
+  
       const finalRecipientId = recipientType === 'student' ? studentAdmNo : 
-                             (recipientType === 'class-teacher' ? teacherClass : recipientId);
-
-      // Get teacher's TSC number
-      const { data: teacherData, error: teacherError } = await supabase
-        .from('teachers')
-        .select('tsc_number')
-        .eq('user_id', currentUser?.id)
-        .single();
-
-      if (teacherError) throw teacherError;
-
+                            (recipientType === 'class-teacher' ? teacherClass : recipientId);
+  
+      // Get teacher's TSC number from current user metadata
+      const tscNumber = currentUser?.user_metadata?.tsc_number;
+      if (!tscNumber) {
+        throw new Error('Unable to verify your identity');
+      }
+  
       const { data, error } = await supabase
         .from('notifications')
-        .insert([
-          {
-            title,
-            content,
-            recipient_type: recipientType,
-            recipient_id: recipientType === 'all' ? null : finalRecipientId,
-            created_at: new Date().toISOString(),
-            sender_id: teacherData?.tsc_number || null,
-          },
-        ]);
-
+        .insert([{
+          title,
+          content,
+          recipient_type: recipientType,
+          recipient_id: recipientType === 'all' ? null : finalRecipientId,
+          created_at: new Date().toISOString(),
+        }]);
+  
       if (error) throw error;
-
+  
       fetchNotifications();
       setModalVisible(false);
       setTitle('');
@@ -252,23 +246,20 @@ const NotificationsScreen = () => {
       showToast('You must be logged in to delete notifications');
       return;
     }
-
-    const { data: teacherData, error: teacherError } = await supabase
-      .from('teachers')
-      .select('tsc_number')
-      .eq('user_id', currentUser.id)
-      .single();
-
-    if (teacherError || !teacherData) {
+  
+    // Get current teacher's TSC number
+    const currentTeacherTsc = currentUser?.user_metadata?.tsc_number;
+    if (!currentTeacherTsc) {
       showToast('Unable to verify your identity');
       return;
     }
-
-    if (senderId !== teacherData.tsc_number) {
+  
+    // Verify the notification was sent by this teacher
+    if (senderId !== currentTeacherTsc) {
       showToast('You can only delete your own notifications');
       return;
     }
-
+  
     Alert.alert(
       'Confirm Delete',
       'Are you sure you want to delete this notification?',
@@ -286,9 +277,9 @@ const NotificationsScreen = () => {
                 .from('notifications')
                 .delete()
                 .eq('id', id);
-
+  
               if (error) throw error;
-
+  
               fetchNotifications();
               showToast('Notification deleted');
             } catch (error) {
@@ -349,7 +340,6 @@ const NotificationsScreen = () => {
                   <TouchableOpacity 
                     onPress={(e) => {
                       e.stopPropagation();
-                      handleDeleteNotification(notification.id, notification.sender_id);
                     }}
                     style={styles.deleteButton}
                   >
