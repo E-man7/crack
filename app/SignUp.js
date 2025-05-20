@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StatusBar, Alert, ActivityIndicator } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, TextInput, TouchableOpacity, StatusBar, Alert, ActivityIndicator, Image, StyleSheet } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import { useNavigation } from '@react-navigation/native';
-import supabase from './supabase'; // Ensure this path is correct
+import supabase from './supabase';
 import tw from 'twrnc';
+import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 
 const SignUp = () => {
   const [selectedSchool, setSelectedSchool] = useState('');
@@ -14,7 +15,19 @@ const SignUp = () => {
   const [password, setPassword] = useState('');
   const [passwordVisible, setPasswordVisible] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [passwordStrength, setPasswordStrength] = useState(0);
   const navigation = useNavigation();
+
+  // Calculate password strength
+  useEffect(() => {
+    let strength = 0;
+    if (password.length > 0) strength += 1;
+    if (password.length >= 6) strength += 1;
+    if (/[A-Z]/.test(password)) strength += 1;
+    if (/[0-9]/.test(password)) strength += 1;
+    if (/[^A-Za-z0-9]/.test(password)) strength += 1;
+    setPasswordStrength(strength);
+  }, [password]);
 
   // Validate Admission Number for Parents
   const validateAdmNo = async (adm_no) => {
@@ -87,7 +100,7 @@ const SignUp = () => {
       // Insert user details into `users` table
       const { error: insertError } = await supabase.from('users').insert([
         {
-          id: user.user.id, // Link with auth.users
+          id: user.user.id,
           email,
           role: selectedRole,
           school: selectedSchool,
@@ -112,15 +125,29 @@ const SignUp = () => {
   };
 
   return (
-    <View style={tw`flex-1 justify-center items-center px-5 bg-white`}>
+    <View style={tw`flex-1 justify-center items-center px-5 bg-gray-900`}>
       <StatusBar backgroundColor="black" barStyle="light-content" />
 
-      <Text style={tw`text-4xl font-bold text-black mb-2`}>Sign Up</Text>
-      <Text style={tw`text-lg text-gray-700 mb-12`}>Create your account</Text>
+      {/* Animated Logo */}
+      <Animated.View entering={FadeIn.duration(800)} exiting={FadeOut}>
+        <Image
+          source={{ uri: 'https://mgtkcujpiitudmzldjsy.supabase.co/storage/v1/object/public/school360//logo13.jpeg' }}
+          style={styles.logo}
+        />
+      </Animated.View>
+
+      <Text style={tw`text-4xl font-bold text-white mb-4`}>Sign Up</Text>
+      <Text style={tw`text-lg text-gray-300 mb-8`}>Create your L-Track account</Text>
 
       {/* School Picker */}
-      <View style={tw`w-full border border-gray-400 rounded-lg mb-4`}>
-        <Picker selectedValue={selectedSchool} onValueChange={setSelectedSchool} style={tw`h-12 text-black`}>
+      <Text style={tw`text-white self-start mb-2 ml-1 text-base`}>School</Text>
+      <View style={tw`w-full border border-gray-500 rounded-full mb-5 bg-gray-800`}>
+        <Picker 
+          selectedValue={selectedSchool} 
+          onValueChange={setSelectedSchool} 
+          style={tw`h-14 text-white text-base`}
+          dropdownIconColor="#ffffff"
+        >
           <Picker.Item label="Select School" value="" />
           <Picker.Item label="School A" value="school_a" />
           <Picker.Item label="School B" value="school_b" />
@@ -128,8 +155,14 @@ const SignUp = () => {
       </View>
 
       {/* Role Picker */}
-      <View style={tw`w-full border border-gray-400 rounded-lg mb-4`}>
-        <Picker selectedValue={selectedRole} onValueChange={setSelectedRole} style={tw`h-12 text-black`}>
+      <Text style={tw`text-white self-start mb-2 ml-1 text-base`}>Teacher/Parent</Text>
+      <View style={tw`w-full border border-gray-500 rounded-full mb-5 bg-gray-800`}>
+        <Picker 
+          selectedValue={selectedRole} 
+          onValueChange={setSelectedRole} 
+          style={tw`h-14 text-white text-base`}
+          dropdownIconColor="#ffffff"
+        >
           <Picker.Item label="Select Role" value="" />
           <Picker.Item label="Teacher" value="teacher" />
           <Picker.Item label="Parent" value="parent" />
@@ -138,30 +171,37 @@ const SignUp = () => {
 
       {/* TSC Number Input (for Teachers) */}
       {selectedRole === 'teacher' && (
-        <TextInput
-          style={tw`w-full border border-gray-400 rounded-lg p-4 text-base text-black mb-4`}
-          placeholder="TSC Number"
-          value={tsc_number}
-          onChangeText={setTscNumber}
-          placeholderTextColor="#888888"
-        />
+        <>
+          <Text style={tw`text-white self-start mb-2 ml-1 text-base`}>TSC Number</Text>
+          <TextInput
+            style={tw`w-full border border-gray-500 rounded-full p-5 text-base text-white mb-5 bg-gray-800`}
+            placeholder="Enter TSC Number"
+            value={tsc_number}
+            onChangeText={setTscNumber}
+            placeholderTextColor="#888888"
+          />
+        </>
       )}
 
       {/* Admission Number Input (for Parents) */}
       {selectedRole === 'parent' && (
-        <TextInput
-          style={tw`w-full border border-gray-400 rounded-lg p-4 text-base text-black mb-4`}
-          placeholder="Admission Number"
-          value={adm_no}
-          onChangeText={setAdmNo}
-          placeholderTextColor="#888888"
-        />
+        <>
+          <Text style={tw`text-white self-start mb-2 ml-1 text-base`}>Admission Number</Text>
+          <TextInput
+            style={tw`w-full border border-gray-500 rounded-full p-5 text-base text-white mb-5 bg-gray-800`}
+            placeholder="Enter Admission Number"
+            value={adm_no}
+            onChangeText={setAdmNo}
+            placeholderTextColor="#888888"
+          />
+        </>
       )}
 
       {/* Email Input */}
+      <Text style={tw`text-white self-start mb-2 ml-1 text-base`}>Email</Text>
       <TextInput
-        style={tw`w-full border border-gray-400 rounded-lg p-4 text-base text-black mb-4`}
-        placeholder="Email"
+        style={tw`w-full border border-gray-500 rounded-full p-5 text-base text-white mb-5 bg-gray-800`}
+        placeholder="Enter Email"
         keyboardType="email-address"
         autoCapitalize="none"
         value={email}
@@ -170,40 +210,64 @@ const SignUp = () => {
       />
 
       {/* Password Input */}
-      <View style={tw`w-full border border-gray-400 rounded-lg flex-row items-center mb-4`}>
+      <Text style={tw`text-white self-start mb-2 ml-1 text-base`}>Password *</Text>
+      <View style={tw`w-full border border-gray-500 rounded-full flex-row items-center mb-2 bg-gray-800`}>
         <TextInput
-          style={tw`flex-1 p-4 text-base text-black`}
-          placeholder="Password"
+          style={tw`flex-1 p-5 text-base text-white`}
+          placeholder={password ? '' : 'Enter Password *'}
           secureTextEntry={!passwordVisible}
           value={password}
           onChangeText={setPassword}
           placeholderTextColor="#888888"
         />
         <TouchableOpacity onPress={() => setPasswordVisible(!passwordVisible)}>
-          <Text style={tw`text-blue-600 font-bold px-4`}>{passwordVisible ? 'Hide' : 'Show'}</Text>
+          <Text style={tw`text-blue-400 font-bold px-5 text-base`}>{passwordVisible ? 'Hide' : 'Show'}</Text>
         </TouchableOpacity>
+      </View>
+
+      {/* Password Strength Meter */}
+      <View style={tw`w-full flex-row h-1.5 mb-5`}>
+        <View style={tw`flex-1 ${passwordStrength >= 1 ? 'bg-red-500' : 'bg-gray-600'} rounded-l-full`} />
+        <View style={tw`flex-1 ${passwordStrength >= 2 ? 'bg-orange-500' : 'bg-gray-600'}`} />
+        <View style={tw`flex-1 ${passwordStrength >= 3 ? 'bg-yellow-500' : 'bg-gray-600'}`} />
+        <View style={tw`flex-1 ${passwordStrength >= 4 ? 'bg-blue-500' : 'bg-gray-600'}`} />
+        <View style={tw`flex-1 ${passwordStrength >= 5 ? 'bg-green-500' : 'bg-gray-600'} rounded-r-full`} />
       </View>
 
       {/* Sign Up Button */}
       <TouchableOpacity
-        style={[tw`w-full bg-blue-600 rounded-lg py-3 mb-4`, isSubmitting && tw`opacity-50`]}
+        style={[tw`w-full bg-blue-600 rounded-full py-5 mb-5`, isSubmitting && tw`opacity-50`]}
         onPress={handleSignUp}
         disabled={isSubmitting}
       >
-        <Text style={tw`text-white text-center text-base font-bold`}>
-          {isSubmitting ? 'Submitting...' : 'Sign Up'}
-        </Text>
+        {isSubmitting ? (
+          <ActivityIndicator color="white" size="large" />
+        ) : (
+          <Text style={tw`text-white text-center text-lg font-bold`}>Sign Up</Text>
+        )}
       </TouchableOpacity>
 
       {/* Navigate to Sign In */}
-      <Text style={tw`text-sm text-black`}>
+      <Text style={tw`text-base text-gray-300`}>
         Already have an account?{' '}
-        <Text onPress={() => navigation.navigate('SignIn')} style={tw`text-blue-600 font-bold`}>
+        <Text onPress={() => navigation.navigate('SignIn')} style={tw`text-blue-400 font-bold`}>
           Sign In
         </Text>
       </Text>
     </View>
   );
 };
+
+const styles = StyleSheet.create({
+  logo: {
+    width: 180,
+    height: 180,
+    marginBottom: 25,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.2)',
+  },
+});
 
 export default SignUp;

@@ -1,14 +1,20 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, SafeAreaView, Image, FlatList, TouchableOpacity, Modal, ActivityIndicator } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import React, { useEffect, useState, useRef } from 'react';
+import { 
+  View, Text, StyleSheet, SafeAreaView, Image, FlatList, TouchableOpacity, 
+  Modal, ActivityIndicator, Alert, Switch, StatusBar 
+} from 'react-native';
+import { useNavigation, useIsFocused } from '@react-navigation/native';
 import { LineChart } from 'react-native-chart-kit';
-import supabase from '../../supabase'; // Verify this path is correct
+import supabase from '../../supabase';
 import ImageHandler from '../../ImageHandler';
 import { Picker } from '@react-native-picker/picker';
 import Icon from 'react-native-vector-icons/MaterialIcons';
+import * as Notifications from 'expo-notifications';
+import { LinearGradient } from 'expo-linear-gradient';
 
 const ProfileScreen = () => {
   const navigation = useNavigation();
+  const isFocused = useIsFocused();
   const [teacher, setTeacher] = useState(null);
   const [loading, setLoading] = useState(true);
   const [tscNumber, setTscNumber] = useState(null);
@@ -26,11 +32,163 @@ const ProfileScreen = () => {
   const [randomSubject, setRandomSubject] = useState('');
   const [subjectPerformance, setSubjectPerformance] = useState([]);
   const [analysisLoading, setAnalysisLoading] = useState(false);
+  const [lessonRemindersEnabled, setLessonRemindersEnabled] = useState(true);
+  const [loadingPreferences, setLoadingPreferences] = useState(true);
+  const notificationListener = useRef();
+  const responseListener = useRef();
 
+  // Request notification permissions
+  useEffect(() => {
+    const requestPermissions = async () => {
+      const { status } = await Notifications.requestPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert(
+          'Notification Permission',
+          'Please enable notifications to receive lesson reminders',
+          [{ text: 'OK' }]
+        );
+      }
+    };
+    
+    requestPermissions();
+    
+    return () => {
+      Notifications.removeNotificationSubscription(notificationListener.current);
+      Notifications.removeNotificationSubscription(responseListener.current);
+    };
+  }, []);
+
+  // Handle notification when app is in foreground
+  useEffect(() => {
+    notificationListener.current = Notifications.addNotificationReceivedListener(notification => {
+      console.log('Notification received:', notification);
+    });
+
+    responseListener.current = Notifications.addNotificationResponseReceivedListener(response => {
+      console.log('Notification response:', response);
+    });
+
+    return () => {
+      Notifications.removeNotificationSubscription(notificationListener.current);
+      Notifications.removeNotificationSubscription(responseListener.current);
+    };
+  }, []);
+
+  // Schedule lesson reminders
+  useEffect(() => {
+    if (!lessonRemindersEnabled || !lessonSchedule.length || !isFocused) return;
+
+    const scheduleReminders = async () => {
+      // Cancel all existing notifications first
+      await Notifications.cancelAllScheduledNotificationsAsync();
+
+      // Schedule new notifications for upcoming lessons
+      lessonSchedule.forEach(lesson => {
+        const now = new Date();
+        const [hours, minutes] = lesson.start_time.split(':').map(Number);
+        
+        // Get the next occurrence of this lesson day
+        const lessonDay = getDayNumber(lesson.day);
+        const lessonDate = new Date();
+        
+        // Set to next occurrence of this day
+        lessonDate.setDate(now.getDate() + ((lessonDay - now.getDay() + 7) % 7));
+        lessonDate.setHours(hours, minutes - 5, 0, 0); // 5 minutes before lesson
+        
+        // If the time has already passed today, schedule for next week
+        if (lessonDate < now) {
+          lessonDate.setDate(lessonDate.getDate() + 7);
+        }
+
+        // Schedule notification
+        Notifications.scheduleNotificationAsync({
+          content: {
+            title: 'Upcoming Lesson',
+            body: `Your ${lesson.subject} class starts in 5 minutes`,
+            sound: true,
+            priority: Notifications.AndroidNotificationPriority.HIGH,
+          },
+          trigger: {
+            date: lessonDate,
+            repeats: true, // Repeat weekly
+          },
+        });
+      });
+    };
+
+    scheduleReminders();
+
+    return () => {
+      if (lessonRemindersEnabled) {
+        Notifications.cancelAllScheduledNotificationsAsync();
+      }
+    };
+  }, [lessonSchedule, lessonRemindersEnabled, isFocused]);
+
+  // Helper function to convert day name to number (0-6)
+  const getDayNumber = (dayName) => {
+    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    return days.findIndex(day => day.toLowerCase() === dayName.toLowerCase());
+  };
+
+  // Fetch user preferences (including reminder settings)
+  useEffect(() => {
+    if (!tscNumber) return;
+
+    const fetchUserPreferences = async () => {
+      try {
+        setLoadingPreferences(true);
+        const { data, error } = await supabase
+          .from('user_preferences')
+          .select('lesson_reminders')
+          .eq('user_id', tscNumber)
+          .single();
+
+        if (error && error.code !== 'PGRST116') throw error; // Ignore "no rows" error
+        
+        // Set to stored preference or default to true
+        setLessonRemindersEnabled(data?.lesson_reminders ?? true);
+      } catch (error) {
+        console.error('Error fetching user preferences:', error);
+        Alert.alert('Error', 'Failed to load user preferences');
+      } finally {
+        setLoadingPreferences(false);
+      }
+    };
+
+    fetchUserPreferences();
+  }, [tscNumber]);
+
+  // Save user preferences when they change
+  useEffect(() => {
+    if (!tscNumber || loadingPreferences) return;
+
+    const saveUserPreferences = async () => {
+      try {
+        const { error } = await supabase
+          .from('user_preferences')
+          .upsert({
+            user_id: tscNumber,
+            lesson_reminders: lessonRemindersEnabled,
+            updated_at: new Date().toISOString(),
+          });
+
+        if (error) throw error;
+      } catch (error) {
+        console.error('Error saving user preferences:', error);
+        // Revert the toggle if save fails
+        setLessonRemindersEnabled(prev => !prev);
+        Alert.alert('Error', 'Failed to save reminder preference');
+      }
+    };
+
+    saveUserPreferences();
+  }, [lessonRemindersEnabled, tscNumber]);
+
+  // Fetch user session
   useEffect(() => {
     const fetchUserSession = async () => {
       try {
-        // First, verify supabase is initialized
         if (!supabase) {
           throw new Error('Supabase client is not initialized');
         }
@@ -52,6 +210,7 @@ const ProfileScreen = () => {
     fetchUserSession();
   }, []);
 
+  // Fetch teacher data
   useEffect(() => {
     if (!tscNumber) return;
 
@@ -79,6 +238,7 @@ const ProfileScreen = () => {
     }
   }, [tscNumber, userType]);
 
+  // Fetch lesson schedule
   useEffect(() => {
     const fetchLessonSchedule = async () => {
       try {
@@ -104,6 +264,7 @@ const ProfileScreen = () => {
     }
   }, [userType]);
 
+  // Fetch subjects
   useEffect(() => {
     const fetchSubjects = async () => {
       try {
@@ -117,7 +278,6 @@ const ProfileScreen = () => {
         const subjectList = data.map(subject => subject.subject_name);
         setSubjects(subjectList);
         
-        // Set a random subject if there are subjects available
         if (subjectList.length > 0) {
           const randomIndex = Math.floor(Math.random() * subjectList.length);
           setRandomSubject(subjectList[randomIndex]);
@@ -134,6 +294,7 @@ const ProfileScreen = () => {
     }
   }, [userType]);
 
+  // Fetch subject performance
   useEffect(() => {
     if (!selectedSubject || !teacher?.class_teacher) return;
 
@@ -186,6 +347,7 @@ const ProfileScreen = () => {
     fetchSubjectPerformance();
   }, [selectedSubject, teacher?.class_teacher]);
 
+  // Fetch avatars
   const fetchAvatars = async () => {
     try {
       setLoadingAvatars(true);
@@ -223,6 +385,7 @@ const ProfileScreen = () => {
     }
   };
 
+  // Image handling functions
   const pickFromGallery = async () => {
     try {
       setUploading(true);
@@ -290,10 +453,13 @@ const ProfileScreen = () => {
     Alert.alert('Success', 'Profile picture updated successfully!');
   };
 
+  // Render functions
   const renderLessonItem = ({ item }) => (
     <View style={styles.lessonItem}>
-      <Text style={styles.lessonDay}>{item.day}</Text>
-      <Text style={styles.lessonSubject}>{item.subject}</Text>
+      <View style={styles.lessonHeader}>
+        <Text style={styles.lessonDay}>{item.day}</Text>
+        <Text style={styles.lessonSubject}>{item.subject}</Text>
+      </View>
       <Text style={styles.lessonTime}>{item.start_time} - {item.end_time}</Text>
     </View>
   );
@@ -375,25 +541,30 @@ const ProfileScreen = () => {
               yAxisLabel=""
               yAxisSuffix="%"
               chartConfig={{
-                backgroundColor: '#0A71F2',
-                backgroundGradientFrom: '#0A71F2',
-                backgroundGradientTo: '#0A71F2',
+                backgroundColor: '#FFFFFF',
+                backgroundGradientFrom: '#FFFFFF',
+                backgroundGradientTo: '#FFFFFF',
                 decimalPlaces: 0,
-                color: (opacity = 1) => `rgba(255, 255, 255, ${opacity})`,
-                labelColor: (opacity = 1) => `rgba(255, 255, 255, ${opacity})`,
+                color: (opacity = 1) => `rgba(3, 127, 140, ${opacity})`,
+                labelColor: (opacity = 1) => `rgba(3, 127, 140, ${opacity})`,
                 style: {
-                  borderRadius: 16
+                  borderRadius: 12
                 },
                 propsForDots: {
                   r: '6',
                   strokeWidth: '2',
-                  stroke: '#ffa726'
+                  stroke: '#037f8c'
+                },
+                propsForBackgroundLines: {
+                  strokeWidth: 1,
+                  stroke: 'rgba(3, 127, 140, 0.2)'
                 }
               }}
               bezier
               style={{
                 marginVertical: 8,
-                borderRadius: 16
+                borderRadius: 12,
+                backgroundColor: '#FFFFFF'
               }}
             />
             <Text style={styles.chartNote}>
@@ -423,211 +594,242 @@ const ProfileScreen = () => {
     );
   };
 
-  return (
-    <SafeAreaView style={styles.container}>
-      {/* Header Section */}
-      <View style={styles.headerContainer}>
-        <Text style={styles.dashboardHeader}>Dashboard</Text>
+  const renderScheduleSection = () => (
+    <View style={styles.scheduleSection}>
+      <View style={styles.sectionHeader}>
+        <Text style={styles.header}>Lesson Schedule</Text>
+        <View style={styles.reminderToggleContainer}>
+          <Text style={styles.reminderToggleText}>Reminders</Text>
+          {loadingPreferences ? (
+            <ActivityIndicator size="small" color="#037f8c" />
+          ) : (
+            <Switch
+              value={lessonRemindersEnabled}
+              onValueChange={() => setLessonRemindersEnabled(prev => !prev)}
+              trackColor={{ false: "#767577", true: "#81b0ff" }}
+              thumbColor={lessonRemindersEnabled ? "#037f8c" : "#f4f3f4"}
+              ios_backgroundColor="#3e3e3e"
+            />
+          )}
+        </View>
       </View>
-
-      {/* Profile Section (non-scrollable) */}
-      <View style={styles.profileSection}>  
-        {loading ? (
-          <ActivityIndicator size="small" color="#FFF" />
-        ) : (
-          <View style={styles.profileContent}>
-            <TouchableOpacity onPress={() => {
-              fetchAvatars();
-              setShowImagePickerModal(true);
-            }}>
-              <View style={styles.imageContainer}>
-                {uploading ? (
-                  <View style={[styles.profileImage, styles.uploadingOverlay]}>
-                    <ActivityIndicator size="large" color="#FFF" />
-                  </View>
-                ) : (
-                  <Image
-                    source={{ 
-                      uri: avatarUrl || 'https://via.placeholder.com/150',
-                      cache: 'reload'
-                    }}
-                    style={styles.profileImage}
-                    onError={() => setAvatarUrl(null)}
-                  />  
-                )}
-              </View>
-            </TouchableOpacity>
-            <View style={styles.infoContainer}>
-              {renderProfileInfo()}
+      
+      {scheduleLoading ? (
+        <ActivityIndicator size="small" color="#FFF" />
+      ) : scheduleError ? (
+        <Text style={styles.errorText}>Error loading schedule: {scheduleError}</Text>
+      ) : lessonSchedule.length > 0 ? (
+        <View style={styles.scheduleList}>
+          {lessonSchedule.map((item) => (
+            <View key={`${item.day}-${item.start_time}-${item.subject}`}>
+              {renderLessonItem({ item })}
             </View>
-          </View>
-        )}
-      </View>
+          ))}
+        </View>
+      ) : (
+        <Text style={styles.value}>No lesson schedule found</Text>
+      )}
+    </View>
+  );
 
-      {/* Scrollable content */}
-      <FlatList
-        data={[{}]} // Dummy data for single item
-        renderItem={() => (
-          <>
-            {userType === 'teacher' && (
-              <>
-                <View style={styles.scheduleSection}>
-                  <Text style={styles.header}>Lesson Schedule</Text>
-                  {scheduleLoading ? (
-                    <ActivityIndicator size="small" color="#FFF" />
-                  ) : scheduleError ? (
-                    <Text style={styles.errorText}>Error loading schedule: {scheduleError}</Text>
-                  ) : lessonSchedule.length > 0 ? (
-                    <View style={styles.scheduleList}>
-                      {lessonSchedule.map((item) => (
-                        <View key={`${item.day}-${item.start_time}-${item.subject}`}>
-                          {renderLessonItem({ item })}
-                        </View>
-                      ))}
+  return (
+    <LinearGradient colors={['#49AAAE', '#AEF5F8']} style={styles.container}>
+      <StatusBar backgroundColor="#037f8c" barStyle="light-content" />
+      <SafeAreaView style={styles.safeArea}>
+        {/* Add Welcome Message Here */}
+        <View style={styles.welcomeContainer}>
+          <Text style={styles.welcomeText}>
+            Welcome Back Teacher <Text style={styles.teacherName}>{teacher?.name?.split(' ')[0] || ''}</Text>, Ready to inspire?
+          </Text>
+        </View>
+
+        <View style={styles.profileSection}>  
+          {loading ? (
+            <ActivityIndicator size="small" color="#FFF" />
+          ) : (
+            <View style={styles.profileContent}>
+              <TouchableOpacity onPress={() => {
+                fetchAvatars();
+                setShowImagePickerModal(true);
+              }}>
+                <View style={styles.imageContainer}>
+                  {uploading ? (
+                    <View style={[styles.profileImage, styles.uploadingOverlay]}>
+                      <ActivityIndicator size="large" color="#FFF" />
                     </View>
                   ) : (
-                    <Text style={styles.value}>No lesson schedule found</Text>
+                    <Image
+                      source={{ 
+                        uri: avatarUrl || 'https://via.placeholder.com/150',
+                        cache: 'reload'
+                      }}
+                      style={styles.profileImage}
+                      onError={() => setAvatarUrl(null)}
+                    />
                   )}
                 </View>
-
-                {renderSubjectAnalysis()}
-              </>
-            )}
-            {renderNotificationCard()}
-          </>
-        )}
-        keyExtractor={() => 'main-content'}
-        contentContainerStyle={styles.scrollContent}
-      />
-
-      {/* Image Picker Modal */}
-      <Modal
-        visible={showImagePickerModal}
-        transparent={true}
-        animationType="slide"
-        onRequestClose={() => setShowImagePickerModal(false)}
-      >
-        <View style={styles.modalContainer}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Choose Profile Image</Text>
-            
-            <TouchableOpacity style={styles.modalOption} onPress={pickFromGallery}>
-              <Icon name="photo-library" size={24} color="#037f8c" />
-              <Text style={styles.modalOptionText}>Choose from Gallery</Text>
-            </TouchableOpacity>
-            
-            <TouchableOpacity style={styles.modalOption} onPress={takePhoto}>
-              <Icon name="camera-alt" size={24} color="#037f8c" />
-              <Text style={styles.modalOptionText}>Take a Photo</Text>
-            </TouchableOpacity>
-            
-            <Text style={styles.avatarSectionTitle}>Or select an avatar:</Text>
-            
-            {loadingAvatars ? (
-              <ActivityIndicator size="small" color="#037f8c" />
-            ) : (
-              <FlatList
-                data={avatars}
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                keyExtractor={(item) => item.name}
-                renderItem={({ item }) => (
-                  <TouchableOpacity onPress={() => selectAvatar(item.uri)}>
-                    <Image source={{ uri: item.uri }} style={styles.avatarImage} />
-                  </TouchableOpacity>
-                )}
-                contentContainerStyle={styles.avatarList}
-              />
-            )}
-            
-            <TouchableOpacity 
-              style={styles.modalCloseButton} 
-              onPress={() => setShowImagePickerModal(false)}
-            >
-              <Text style={styles.modalCloseButtonText}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
+              </TouchableOpacity>
+              <View style={styles.infoContainer}>
+                {renderProfileInfo()}
+              </View>
+            </View>
+          )}
         </View>
-      </Modal>
-    </SafeAreaView>
+
+        {/* Scrollable content */}
+        <FlatList
+          data={[{}]}
+          renderItem={() => (
+            <>
+              {userType === 'teacher' && (
+                <>
+                  {renderScheduleSection()}
+                  {renderSubjectAnalysis()}
+                </>
+              )}
+              <View style={styles.announcementCardContainer}>
+                {renderNotificationCard()}
+              </View>
+            </>
+          )}
+          keyExtractor={() => 'main-content'}
+          contentContainerStyle={styles.scrollContent}
+        />
+
+        {/* Image Picker Modal */}
+        <Modal
+          visible={showImagePickerModal}
+          transparent={true}
+          animationType="slide"
+          onRequestClose={() => setShowImagePickerModal(false)}
+        >
+          <View style={styles.modalContainer}>
+            <View style={styles.modalContent}>
+              <Text style={styles.modalTitle}>Choose Profile Image</Text>
+              
+              <TouchableOpacity style={styles.modalOption} onPress={pickFromGallery}>
+                <Icon name="photo-library" size={24} color="#037f8c" />
+                <Text style={styles.modalOptionText}>Choose from Gallery</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity style={styles.modalOption} onPress={takePhoto}>
+                <Icon name="camera-alt" size={24} color="#037f8c" />
+                <Text style={styles.modalOptionText}>Take a Photo</Text>
+              </TouchableOpacity>
+              
+              <Text style={styles.avatarSectionTitle}>Or select an avatar:</Text>
+              
+              {loadingAvatars ? (
+                <ActivityIndicator size="small" color="#037f8c" />
+              ) : (
+                <FlatList
+                  data={avatars}
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  keyExtractor={(item) => item.name}
+                  renderItem={({ item }) => (
+                    <TouchableOpacity onPress={() => selectAvatar(item.uri)}>
+                      <Image source={{ uri: item.uri }} style={styles.avatarImage} />
+                    </TouchableOpacity>
+                  )}
+                  contentContainerStyle={styles.avatarList}
+                />
+              )}
+              
+              <TouchableOpacity 
+                style={styles.modalCloseButton} 
+                onPress={() => setShowImagePickerModal(false)}
+              >
+                <Text style={styles.modalCloseButtonText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+      </SafeAreaView>
+    </LinearGradient>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F5F5F5',
+    fontFamily: 'CaliforniaFB', 
+  },
+  safeArea: {
+    flex: 1,
+    fontFamily: 'CaliforniaFB',
   },
   headerContainer: {
-    backgroundColor: '#F5F5F5',
-    paddingVertical: 20,
+    padding: 16,
     alignItems: 'center',
     justifyContent: 'center',
     borderBottomWidth: 15,
     borderBottomColor: 'rgba(44, 62, 80, 0.1)',
+    backgroundColor: 'transparent',
   },
   dashboardHeader: {
-    fontSize: 24,
-    color: '#2C3E50',
-    fontFamily: 'SFProDisplay-Bold',
-    fontWeight: 'bold',
-    textShadowColor: 'rgba(0,0,0,0.05)',
-    textShadowOffset: {width: 0, height: 1},
-    textShadowRadius: 2,
+    fontSize: 26,
+    color: '#212529',
+    fontFamily: 'CaliforniaFB',
+    fontWeight: '800',
     letterSpacing: 0.5,
+  },
+  profileSection: {
+    backgroundColor: '#037f8c',
+    padding: 26,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    elevation: 60,
+    borderRadius: 30,
+    marginHorizontal: 20,
+    overflow: 'hidden',
+    marginTop: 12,
+    fontFamily: 'CaliforniaFB',
   },
   scrollContent: {
     padding: 16,
     paddingBottom: 32,
   },
-  profileSection: {
-    backgroundColor: '#0A71F2',
-    padding: 16,
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 6,
-    elevation: 5,
-    borderRadius: 12, 
-  },
   scheduleSection: {
-    backgroundColor: '#0A71F2',
+    backgroundColor: '#FFFFFF',
     padding: 20,
-    borderRadius: 12,
+    borderRadius: 20,
     marginBottom: 16,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
+    shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.15,
-    shadowRadius: 6,
+    shadowRadius: 8,
     elevation: 5,
     minHeight: 300,
-    borderLeftWidth: 4,
-    borderLeftColor: 'rgba(255,255,255,0.3)',
+    borderLeftWidth: 0,
+    borderLeftColor: 'transparent',
   },
   analysisSection: {
-    backgroundColor: '#0A71F2',
+    backgroundColor: '#FFFFFF',
     padding: 16,
-    borderRadius: 12,
+    borderRadius: 20,
     marginBottom: 16,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
+    shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.15,
-    shadowRadius: 6,
+    shadowRadius: 8,
     elevation: 5,
-    borderTopWidth: 4,
-    borderTopColor: 'rgba(255,255,255,0.3)',
+    borderTopWidth: 0,
+    borderTopColor: 'transparent',
   },
   header: {
     fontSize: 20,
     marginBottom: 12,
-    color: '#FFF',
-    fontFamily: 'SFProDisplay-Semibold',
+    color: '#037f8c',
+    fontFamily: 'CaliforniaFB', 
     letterSpacing: 0.3,
     position: 'relative',
     paddingBottom: 8,
     borderBottomWidth: 2,
-    borderBottomColor: 'rgba(255,255,255,0.3)',
+    borderBottomColor: 'rgba(3, 127, 140, 0.3)',
   },
   profileContent: {
     flexDirection: 'row',
@@ -636,11 +838,13 @@ const styles = StyleSheet.create({
   imageContainer: {
     marginRight: 16,
     position: 'relative',
+    marginBottom: 15,
+    marginTop: -15,
   },
   profileImage: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
+    width: 90,
+    height: 90,
+    borderRadius: 45,
     backgroundColor: '#DDD',
     borderWidth: 3,
     borderColor: 'rgba(255,255,255,0.5)',
@@ -650,32 +854,33 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: 'rgba(0,0,0,0.5)',
-    borderRadius: 50,
+    borderRadius: 45,
   },
   infoContainer: {
     flex: 1,
+    marginBottom: 15,
+    marginTop: -15,
   },
   label: {
     fontSize: 16,
     marginBottom: 6,
     color: '#FFF',
-    fontFamily: 'SFProDisplay-Regular',
-    opacity: 0.9,
+    fontFamily: 'CaliforniaFB', 
   },
   value: {
     color: '#FFF',
-    fontFamily: 'SFProDisplay-Regular',
-    fontSize: 16,
-    fontWeight: '600',
+    fontFamily: 'CaliforniaFB',
+    fontSize: 20,
+    fontWeight: '800',
   },
   lessonItem: {
     backgroundColor: 'rgba(255,255,255,0.95)',
     padding: 16,
-    borderRadius: 8,
+    borderRadius: 12,
     marginBottom: 12,
     minHeight: 80,
     borderLeftWidth: 4,
-    borderLeftColor: '#0A71F2',
+    borderLeftColor: '#037f8c',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
@@ -684,9 +889,9 @@ const styles = StyleSheet.create({
   },
   lessonDay: {
     fontSize: 16,
-    color: '#0A71F2',
+    color: '#037f8c',
     marginBottom: 4,
-    fontFamily: 'SFProDisplay-Semibold',
+    fontFamily: 'CaliforniaFB', 
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
@@ -694,13 +899,13 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#333',
     marginBottom: 4,
-    fontFamily: 'SFProDisplay-Regular',
+    fontFamily: 'CaliforniaFB',
     fontWeight: '600',
   },
   lessonTime: {
     fontSize: 14,
     color: '#666',
-    fontFamily: 'SFProDisplay-Regular',
+    fontFamily: 'CaliforniaFB',
     fontStyle: 'italic',
   },
   scheduleList: {
@@ -710,75 +915,53 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 16,
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: 'rgba(3, 127, 140, 0.2)',
     borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.3)',
+    borderColor: 'rgba(3, 127, 140, 0.3)',
   },
   pickerLabel: {
-    color: '#FFF',
+    color: '#037f8c',
     marginRight: 10,
     fontSize: 16,
-    fontFamily: 'SFProDisplay-Regular',
+    fontFamily: 'CaliforniaFB', 
     opacity: 0.9,
   },
   subjectPicker: {
     flex: 1,
     height: 50,
-    color: '#FFF',
+    color: '#037f8c',
     backgroundColor: 'transparent',
     borderRadius: 8,
-    fontFamily: 'SFProDisplay-Regular',
-  },
-  chartContainer: {
-    alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    borderRadius: 12,
-    padding: 16,
-    marginTop: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
+    fontFamily: 'CaliforniaFB',
   },
   chartNote: {
-    color: '#FFF',
+    color: '#037f8c',
     fontSize: 14,
     marginTop: 12,
     textAlign: 'center',
-    fontFamily: 'SFProDisplay-Regular',
+    fontFamily: 'CaliforniaFB',
     lineHeight: 20,
-  },
-  notificationCard: {
-    backgroundColor: '#FFF',
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.1,
-    shadowRadius: 6,
-    elevation: 3,
-    borderTopWidth: 3,
-    borderTopColor: '#0A71F2',
   },
   notificationCardTitle: {
     fontSize: 18,
     marginBottom: 8,
-    color: '#0A71F2',
-    fontFamily: 'SFProDisplay-Semibold',
+    color: '#037f8c',
+    fontFamily: 'CaliforniaFB',
     letterSpacing: 0.3,
   },
   notificationCardText: {
     fontSize: 14,
     color: '#555',
-    fontFamily: 'SFProDisplay-Regular',
+    fontFamily: 'CaliforniaFB',
     lineHeight: 20,
   },
   errorText: {
-    color: '#FFCCCB',
+    color: '#FF6B6B',
     fontSize: 14,
-    fontFamily: 'SFProDisplay-Regular',
+    fontFamily: 'CaliforniaFB',
     textAlign: 'center',
     paddingVertical: 8,
   },
@@ -794,17 +977,17 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 20,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
+    shadowOffset: { width: 0, height: 5 },
     shadowOpacity: 0.3,
-    shadowRadius: 10,
+    shadowRadius: 15,
     elevation: 10,
   },
   modalTitle: {
     fontSize: 20,
     marginBottom: 20,
     textAlign: 'center',
-    color: '#0A71F2',
-    fontFamily: 'SFProDisplay-Semibold',
+    color: '#037f8c',
+    fontFamily: 'CaliforniaFB', // Changed font
     paddingBottom: 10,
     borderBottomWidth: 1,
     borderBottomColor: '#F5F5F5',
@@ -819,15 +1002,15 @@ const styles = StyleSheet.create({
   modalOptionText: {
     marginLeft: 15,
     fontSize: 16,
-    fontFamily: 'SFProDisplay-Regular',
+    fontFamily: 'CaliforniaFB', // Changed font
     color: '#2C3E50',
   },
   avatarSectionTitle: {
     marginTop: 15,
     marginBottom: 10,
     fontSize: 16,
-    color: '#0A71F2',
-    fontFamily: 'SFProDisplay-Semibold',
+    color: '#037f8c',
+    fontFamily: 'CaliforniaFB', // Changed font
     textAlign: 'center',
   },
   avatarList: {
@@ -839,25 +1022,40 @@ const styles = StyleSheet.create({
     borderRadius: 35,
     marginRight: 15,
     borderWidth: 3,
-    borderColor: '#0A71F2',
+    borderColor: '#037f8c',
   },
   modalCloseButton: {
     marginTop: 20,
     padding: 12,
-    backgroundColor: '#0A71F2',
+    backgroundColor: '#037f8c',
     borderRadius: 8,
     alignItems: 'center',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.2,
     shadowRadius: 4,
-    elevation: 2,
+    elevation: 3,
   },
   modalCloseButtonText: {
     color: 'white',
     fontSize: 16,
-    fontFamily: 'SFProDisplay-Semibold',
+    fontFamily: 'CaliforniaFB',
     letterSpacing: 0.5,
+  },
+  reminderToggleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  reminderToggleText: {
+    marginRight: 8,
+    color: '#037f8c',
+    fontSize: 14,
+    fontFamily: 'CaliforniaFB', 
+  },
+  lessonHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 4,
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -865,28 +1063,34 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 12,
   },
-  seeAllText: {
-    color: 'rgba(255,255,255,0.7)',
-    fontSize: 14,
-    fontFamily: 'SFProDisplay-Regular',
-  },
-  progressContainer: {
-    height: 6,
-    backgroundColor: 'rgba(255,255,255,0.3)',
-    borderRadius: 3,
-    marginTop: 8,
-    overflow: 'hidden',
-  },
-  progressBar: {
-    height: '100%',
-    backgroundColor: '#FFF',
-    borderRadius: 3,
-  },
-  iconContainer: {
-    padding: 8,
-    backgroundColor: 'rgba(255,255,255,0.2)',
+  announcementCardContainer: {
+    backgroundColor: '#FFFFFF',
     borderRadius: 20,
-    marginRight: 12,
+    padding: 18,
+    marginBottom: 16,
+    marginHorizontal: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  welcomeContainer: {
+    paddingHorizontal: 30,
+    paddingTop: 20,
+    paddingBottom: 10,
+    marginBottom: -10,
+  },
+  welcomeText: {
+    fontSize: 17,
+    color: '#FFF',
+    fontFamily: 'CaliforniaFB',
+    textAlign: 'left',
+    lineHeight: 26,
+  },
+  teacherName: {
+    fontWeight: 'bold',
+    textTransform: 'capitalize',
   },
 });
 

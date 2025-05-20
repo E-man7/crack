@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StatusBar, Alert, Platform } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StatusBar, Alert, Platform, Image, ActivityIndicator, StyleSheet } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import { useNavigation } from '@react-navigation/native';
 import tw from 'twrnc';
 import supabase from './supabase';
 import * as Device from 'expo-device';
+import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 
 const SignIn = () => {
   const [selectedSchool, setSelectedSchool] = useState('');
@@ -31,7 +32,7 @@ const SignIn = () => {
         .eq('device_id', deviceId)
         .single();
 
-      if (fetchError && fetchError.code !== 'PGRST116') { // Ignore "no rows" error
+      if (fetchError && fetchError.code !== 'PGRST116') {
         console.error('Error checking device:', fetchError);
         return;
       }
@@ -80,11 +81,8 @@ const SignIn = () => {
 
     const MAX_DEVICES = 4;
     if (existingDevices && existingDevices.length >= MAX_DEVICES) {
-      // Sort by oldest first
       const sorted = [...existingDevices].sort((a, b) => 
         new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-
-      // Delete the oldest device
       await supabase
         .from('user_devices')
         .delete()
@@ -117,7 +115,6 @@ const SignIn = () => {
       const identifierField = selectedRole === 'parent' ? 'adm_no' : 'tsc_number';
       const identifierValue = selectedRole === 'parent' ? adm_no : tsc_number;
 
-      // Fetch user data from Supabase
       const { data: userData, error: userError } = await supabase
         .from('users')
         .select('id, email')
@@ -132,7 +129,6 @@ const SignIn = () => {
         return;
       }
 
-      // Sign in using email and password
       const { data: authData, error: signInError } = await supabase.auth.signInWithPassword({
         email: userData.email,
         password,
@@ -140,7 +136,6 @@ const SignIn = () => {
 
       if (signInError) throw signInError;
 
-      // Track device after successful login
       if (authData.session) {
         await trackDeviceAndSession(
           authData.user.id,
@@ -150,7 +145,6 @@ const SignIn = () => {
 
       Alert.alert('Success', 'Signed in successfully!');
 
-      // Navigate based on role
       if (selectedRole === 'teacher') {
         navigation.replace('TeacherTabs');
       } else {
@@ -165,15 +159,32 @@ const SignIn = () => {
   };
 
   return (
-    <View style={tw`flex-1 justify-center items-center px-5 bg-white`}>
+    <View style={tw`flex-1 justify-center items-center px-5 bg-gray-900`}>
       <StatusBar backgroundColor="black" barStyle="light-content" />
 
-      <Text style={tw`text-4xl font-bold text-black mb-2`}>Welcome</Text>
-      <Text style={tw`text-lg text-gray-700 mb-12`}>Sign in to your account</Text>
+      {/* Animated Logo */}
+      <Animated.View entering={FadeIn.duration(800)} exiting={FadeOut}>
+        <Image
+          source={{ uri: 'https://mgtkcujpiitudmzldjsy.supabase.co/storage/v1/object/public/school360//logo13.jpeg' }}
+          style={styles.logo}
+        />
+      </Animated.View>
+
+      <Text style={tw`text-4xl font-bold text-white mb-4`}>Sign In</Text>
+      <Text style={tw`text-lg text-gray-300 mb-8`}>Welcome back to L-Track</Text>
 
       {/* School Picker */}
-      <View style={tw`w-full border border-gray-400 rounded-lg mb-4`}>
-        <Picker selectedValue={selectedSchool} onValueChange={setSelectedSchool} style={tw`h-12 text-black`}>
+      <Text style={tw`text-white self-start mb-2 ml-1 text-base`}>School</Text>
+      <View style={tw`w-full border border-gray-500 rounded-full mb-5 bg-gray-800 overflow-hidden`}>
+        <Picker
+          selectedValue={selectedSchool}
+          onValueChange={setSelectedSchool}
+          style={tw`h-14 text-white text-base`}
+          dropdownIconColor="#ffffff"
+          dropdownIconRippleColor="#3b82f6"
+          mode="dropdown"
+          itemStyle={styles.pickerItem}
+        >
           <Picker.Item label="Select School" value="" />
           <Picker.Item label="School A" value="school_a" />
           <Picker.Item label="School B" value="school_b" />
@@ -181,48 +192,64 @@ const SignIn = () => {
       </View>
 
       {/* Role Picker */}
-      <View style={tw`w-full border border-gray-400 rounded-lg mb-4`}>
-        <Picker selectedValue={selectedRole} onValueChange={setSelectedRole} style={tw`h-12 text-black`}>
+      <Text style={tw`text-white self-start mb-2 ml-1 text-base`}>Teacher/Parent</Text>
+      <View style={tw`w-full border border-gray-500 rounded-full mb-5 bg-gray-800 overflow-hidden`}>
+        <Picker
+          selectedValue={selectedRole}
+          onValueChange={setSelectedRole}
+          style={tw`h-14 text-white text-base`}
+          dropdownIconColor="#ffffff"
+          dropdownIconRippleColor="#3b82f6"
+          mode="dropdown"
+          itemStyle={styles.pickerItem}
+        >
           <Picker.Item label="Select Role" value="" />
-          <Picker.Item label="Parent" value="parent" />
           <Picker.Item label="Teacher" value="teacher" />
+          <Picker.Item label="Parent" value="parent" />
         </Picker>
       </View>
 
       {/* Admission Number Input (for Parents) */}
       {selectedRole === 'parent' && (
-        <TextInput
-          style={tw`w-full border border-gray-400 rounded-lg p-4 text-base text-black mb-4`}
-          placeholder="Admission Number"
-          value={adm_no}
-          onChangeText={setAdmNo}
-          placeholderTextColor="#888888"
-        />
+        <>
+          <Text style={tw`text-white self-start mb-2 ml-1 text-base`}>Admission Number</Text>
+          <TextInput
+            style={tw`w-full border border-gray-500 rounded-full p-5 text-base text-white mb-5 bg-gray-800`}
+            placeholder="Enter Admission Number"
+            value={adm_no}
+            onChangeText={setAdmNo}
+            placeholderTextColor="#888888"
+          />
+        </>
       )}
 
       {/* TSC Number Input (for Teachers) */}
       {selectedRole === 'teacher' && (
-        <TextInput
-          style={tw`w-full border border-gray-400 rounded-lg p-4 text-base text-black mb-4`}
-          placeholder="TSC Number"
-          value={tsc_number}
-          onChangeText={setTscNumber}
-          placeholderTextColor="#888888"
-        />
+        <>
+          <Text style={tw`text-white self-start mb-2 ml-1 text-base`}>TSC Number</Text>
+          <TextInput
+            style={tw`w-full border border-gray-500 rounded-full p-5 text-base text-white mb-5 bg-gray-800`}
+            placeholder="Enter TSC Number"
+            value={tsc_number}
+            onChangeText={setTscNumber}
+            placeholderTextColor="#888888"
+          />
+        </>
       )}
 
       {/* Password Input */}
-      <View style={tw`w-full border border-gray-400 rounded-lg flex-row items-center mb-4`}>
+      <Text style={tw`text-white self-start mb-2 ml-1 text-base`}>Password *</Text>
+      <View style={tw`w-full border border-gray-500 rounded-full flex-row items-center mb-2 bg-gray-800`}>
         <TextInput
-          style={tw`flex-1 p-4 text-base text-black`}
-          placeholder="Password"
+          style={tw`flex-1 p-5 text-base text-white`}
+          placeholder={password ? '' : 'Enter Password *'}
           secureTextEntry={!passwordVisible}
           value={password}
           onChangeText={setPassword}
           placeholderTextColor="#888888"
         />
         <TouchableOpacity onPress={() => setPasswordVisible(!passwordVisible)}>
-          <Text style={tw`text-blue-600 font-bold px-4`}>{passwordVisible ? 'Hide' : 'Show'}</Text>
+          <Text style={tw`text-blue-400 font-bold px-5 text-base`}>{passwordVisible ? 'Hide' : 'Show'}</Text>
         </TouchableOpacity>
       </View>
 
@@ -231,29 +258,62 @@ const SignIn = () => {
         style={tw`w-full items-end mb-4`}
         onPress={() => navigation.navigate('ForgotPassword')}
       >
-        <Text style={tw`text-blue-600 font-bold`}>Forgot Password?</Text>
+        <Text style={tw`text-blue-400 font-bold`}>Forgot Password?</Text>
       </TouchableOpacity>
 
       {/* Sign In Button */}
       <TouchableOpacity
-        style={[tw`w-full bg-blue-600 rounded-lg py-3 mb-4`, isSubmitting && tw`opacity-50`]}
+        style={[tw`w-full bg-blue-600 rounded-full py-5 mb-5`, isSubmitting && tw`opacity-50`]}
         onPress={handleSignIn}
         disabled={isSubmitting}
       >
-        <Text style={tw`text-white text-center text-base font-bold`}>
-          {isSubmitting ? 'Signing In...' : 'Sign In'}
-        </Text>
+        {isSubmitting ? (
+          <ActivityIndicator color="white" size="large" />
+        ) : (
+          <Text style={tw`text-white text-center text-lg font-bold`}>Sign In</Text>
+        )}
       </TouchableOpacity>
 
       {/* Sign Up Link */}
-      <View style={tw`flex-row`}>
-        <Text style={tw`text-gray-700`}>Don't have an account? </Text>
-        <TouchableOpacity onPress={() => navigation.navigate('SignUp')}>
-          <Text style={tw`text-blue-600 font-bold`}>SignUp</Text>
-        </TouchableOpacity>
-      </View>
+      <Text style={tw`text-base text-gray-300`}>
+        Don't have an account?{' '}
+        <Text onPress={() => navigation.navigate('SignUp')} style={tw`text-blue-400 font-bold`}>
+          Sign Up
+        </Text>
+      </Text>
     </View>
   );
 };
+
+const styles = StyleSheet.create({
+  logo: {
+    width: 180,
+    height: 180,
+    marginBottom: 25,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.2)',
+  },
+  pickerItem: {
+    color: '#1f2937',
+    backgroundColor: '#6b7280', // bg-gray-800
+  },
+  pickerDropdown: {
+    backgroundColor: '#1f2937',
+    borderColor: '#6b7280',
+  },
+});
+
+// Android Picker theming fix
+if (Platform.OS === 'android') {
+  Picker.prototype._setMode = function _setMode(mode) {
+    this._mode = mode;
+    const child = this._picker;
+    if (child && child.setMode) {
+      child.setMode(mode);
+    }
+  };
+}
 
 export default SignIn;

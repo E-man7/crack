@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "EXELS",
-    "slug": "EXELS",
+    "name": "L-Track",
+    "slug": "L-Track",
     "version": "1.0.0",
     "scheme": "school360",
     "orientation": "portrait",
@@ -28,7 +28,7 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.yourcompany.EXELS",
+      "bundleIdentifier": "com.yourcompany.L-Track",
       "scheme": "school360",
       "infoPlist": {
         "CFBundleURLTypes": [
@@ -65,6 +65,12 @@
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "assetBundlePatterns": ["**/*"],
+    "extra": {
+      "fonts": {
+        "CaliforniaFB": "assets/fonts/CaliforniaFB.ttf"
+      }
     }
   }
 }
